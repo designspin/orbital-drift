@@ -18,7 +18,7 @@
 ---
 
 ## Chapter 01 — Setup & first canvas
-**Outcome:** A working TypeScript + Vite project that renders a blank canvas at the correct size.
+**Outcome:** A working TypeScript + Vite project that renders a centered canvas with a fixed logical resolution and a “Hello” message.
 
 **Topics:**
 - Repo structure overview (monorepo with `chapters/` and `lib/`).
@@ -26,27 +26,30 @@
 - Creating the `<canvas>` in TypeScript and appending to `#app`.
 - Setting logical size with `CANVAS_WIDTH`/`CANVAS_HEIGHT`.
 - Keeping display size responsive with CSS and `aspect-ratio`.
-- Basic 2D context setup and a “Hello, World!” render.
-
+- Basic 2D context setup (`fillStyle`, `font`, `textAlign`, `textBaseline`).
 
 **Exercises:**
-- Change canvas size dynamically based on window size.
-- Add a background color fill.
+- Change `CANVAS_WIDTH`/`CANVAS_HEIGHT` and observe scaling.
+- Replace the message text and tweak font styles.
+- Fill a solid background color before drawing text.
 
 ---
 
 ## Chapter 02 — Drawing primitives
-**Outcome:** Draw simple shapes and text to build a static scene.
+**Outcome:** A mini “canvas gallery” showing core drawing features and image rendering.
 
 **Topics:**
-- Rectangles, circles, lines, and text.
-- Fill vs stroke styles.
-- Coordinate system basics.
-- Saving/restoring canvas state.
+- Rectangles, circles/arcs, lines/paths.
+- Fill vs stroke styles (color, alpha, line width/caps/joins).
+- Gradients and patterns.
+- Text basics (fill/stroke text, alignment).
+- Images and `drawImage` (including scaling).
+- Transforms (`translate`, `rotate`, `scale`) and `save`/`restore`.
 
 **Exercises:**
-- Draw a simple “level” layout with rectangles.
-- Render a score label in the top-left corner.
+- Recreate a simple HUD (score + lives) with text and shapes.
+- Draw a sprite and rotate it around its center.
+- Make a small poster using gradients + text + an image.
 
 ---
 

@@ -2,10 +2,12 @@
   "name": "canvas-ts-course",
   "private": true,
   "workspaces": [
-    "chapters/*"
+    "chapters/*",
+    "lib"
   ],
   "scripts": {
     "dev:ch01": "npm run dev -w chapters/chapter-01-setup",
-    "dev:ch02": "npm run dev -w chapters/chapter-02-drawing"
+    "dev:ch02": "npm run dev -w chapters/chapter-02-drawing",
+    "dev:ch03": "npm run dev -w chapters/chapter-03-gameloop"
   }
 }
