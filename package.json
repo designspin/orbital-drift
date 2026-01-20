@@ -1,0 +1,7 @@
+{
+  "name": "canvas-ts-course",
+  "private": true,
+  "workspaces": [
+    "chapters/*"
+  ]
+}
