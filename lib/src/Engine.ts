@@ -1,5 +1,8 @@
 import { Timer } from './Timer';
 import { Input } from './Input';
+import { EntityManager } from './EntityManager';
+import { iEntity } from './Entity';
+import { Vec2 } from './types/vec2';
 
 type EngineInitOptions = {
   selector: string;
@@ -11,9 +14,17 @@ type EngineInitOptions = {
 export class Engine {
   protected timer: Timer = new Timer();
   protected input: Input = new Input();
+  protected entityManager: EntityManager = new EntityManager();
   private isRunning: boolean = false;
   private hasLoopStarted: boolean = false;
   protected ctx!: CanvasRenderingContext2D;
+
+  protected get screenSize(): Vec2 {
+      return {
+          x: this.ctx.canvas.width,
+          y: this.ctx.canvas.height
+      };
+  }
 
   init(opts: EngineInitOptions): void {
       const app = document.querySelector<HTMLDivElement>(opts.selector);
@@ -34,7 +45,11 @@ export class Engine {
           throw new Error('Failed to get 2D context from canvas.');
       }
       this.ctx = context;
+
+      this.onInit();
   }
+
+  protected onInit(): void {}
 
   start() {
       if (this.isRunning) return;
@@ -75,17 +90,23 @@ export class Engine {
   }
 
   protected update(deltaTime: number) {
-      // Update game state here
+      this.entityManager.update(deltaTime, this.screenSize);
   }
 
   protected render(renderCallback?: () => void) {
       this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height);
       this.ctx.save();
 
+      this.entityManager.render(this.ctx);
+
       if (renderCallback) {
           renderCallback();
       }
 
       this.ctx.restore();
+  }
+
+  protected addEntity(entity: iEntity) {
+      this.entityManager.add(entity);
   }
 }

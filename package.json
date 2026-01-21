@@ -9,6 +9,7 @@
     "dev:ch01": "npm run dev -w chapters/chapter-01-setup",
     "dev:ch02": "npm run dev -w chapters/chapter-02-drawing",
     "dev:ch03": "npm run dev -w chapters/chapter-03-gameloop",
-    "dev:ch04": "npm run dev -w chapters/chapter-04-input"
+    "dev:ch04": "npm run dev -w chapters/chapter-04-input",
+    "dev:ch05": "npm run dev -w chapters/chapter-05-entities"
   }
 }
