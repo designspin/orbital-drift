@@ -1,4 +1,5 @@
 import { Timer } from './Timer';
+import { Input } from './Input';
 
 type EngineInitOptions = {
   selector: string;
@@ -9,7 +10,9 @@ type EngineInitOptions = {
 
 export class Engine {
   protected timer: Timer = new Timer();
+  protected input: Input = new Input();
   private isRunning: boolean = false;
+  private hasLoopStarted: boolean = false;
   protected ctx!: CanvasRenderingContext2D;
 
   init(opts: EngineInitOptions): void {
@@ -34,9 +37,14 @@ export class Engine {
   }
 
   start() {
+      if (this.isRunning) return;
       this.isRunning = true;
       this.timer.resume();
-      requestAnimationFrame(this.gameLoop.bind(this));
+
+      if (!this.hasLoopStarted) {
+          this.hasLoopStarted = true;
+          requestAnimationFrame(this.gameLoop.bind(this));
+      }
   }
 
   stop() {
@@ -45,12 +53,23 @@ export class Engine {
   }
 
   private gameLoop() {
-      if (!this.isRunning) return;
+      if (this.input.wasPressed('Escape')) {
+          if (this.isRunning) {
+              this.stop();
+          } else {
+              this.isRunning = true;
+              this.timer.resume();
+          }
+      }
+      
+      
+      if(this.isRunning) {
+        const deltaTime = this.timer.tick();
+        this.update(deltaTime);
+        this.render();
+      }
 
-      const deltaTime = this.timer.tick();
-
-      this.update(deltaTime);
-      this.render();
+      this.input.update();
 
       requestAnimationFrame(this.gameLoop.bind(this));
   }
