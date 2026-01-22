@@ -83,8 +83,12 @@ export class Engine {
 
   protected onResume(): void {}
 
+  protected canTogglePause(): boolean {
+    return true;
+  }
+
   private gameLoop() {
-    if (this.input.wasPressed("Escape")) {
+    if (this.input.wasPressed("Escape") && this.canTogglePause()) {
       if (this.isRunning) {
         this.stop();
       } else {

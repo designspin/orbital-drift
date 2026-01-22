@@ -12,6 +12,7 @@
     "dev:ch04": "npm run dev -w chapters/chapter-04-input",
     "dev:ch05": "npm run dev -w chapters/chapter-05-entities",
     "dev:ch06": "npm run dev -w chapters/chapter-06-collision",
-    "dev:ch07": "npm run dev -w chapters/chapter-07-ui"
+    "dev:ch07": "npm run dev -w chapters/chapter-07-ui",
+    "dev:ch08": "npm run dev -w chapters/chapter-08-state"
   }
 }
