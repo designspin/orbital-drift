@@ -3,4 +3,5 @@ export * from './Timer';
 export * from './Entity';
 export * from './Input';
 export * from './types/index';
+export * from './ui/index';
 export * from './Collision';
