@@ -19,11 +19,11 @@
 - Follow player or scroll world
 - Support maps larger than canvas
 
-## CH11 — Sound & Music System
+## CH11 — Sound & Music System - Done
 - Play sound effects and background music
 - Volume control, channels, multiple tracks
 
-## CH12 — Particles & Effects
+## CH12 — Particles & Effects - Done
 - Explosions, trails, sparks, animated effects
 - Can be implemented as short‑lived entities
 

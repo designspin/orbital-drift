@@ -6,6 +6,7 @@ export * from './Assets';
 export * from './State';
 export * from './Camera';
 export * from './Audio';
+export * from './Particles';
 export * from './types/index';
 export * from './ui/index';
 export * from './Collision';
