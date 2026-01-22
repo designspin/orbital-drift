@@ -27,6 +27,10 @@
 - Explosions, trails, sparks, animated effects
 - Can be implemented as short‑lived entities
 
+## CH13 — Extra Improvements - Done
+- Entity event bus for decoupled communication
+- Collision layers/masks (bitmasks) to avoid instanceof checks
+
 ---
 
 ## Optional / Advanced Chapters

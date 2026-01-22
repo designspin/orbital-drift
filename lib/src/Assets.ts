@@ -19,6 +19,7 @@ export class AssetManager {
   private images = new Map<string, HTMLImageElement>();
   private taskQueue: TaskQueueItem[] = [];
   private sounds = new Map<string, AudioBuffer>();
+  private fonts = new Map<string, FontFace>();
 
   queueImage(key: string, src: string): void {
     this.imageQueue.push({ key, src });
@@ -26,6 +27,10 @@ export class AssetManager {
 
   queueSound(key: string, src: string, ctx: AudioContext): void {
     this.queueTask('sound', () => this.loadSound(ctx, key, src));
+  }
+
+  queueFont(family: string, src: string, descriptors: FontFaceDescriptors = {}): void {
+    this.queueTask('font', () => this.loadFont(family, src, descriptors));
   }
 
   queueTask(kind: string, run: () => Promise<void>): void {
@@ -110,6 +115,14 @@ export class AssetManager {
     return sound;
   }
 
+  getFont(family: string): FontFace {
+    const font = this.fonts.get(family);
+    if (!font) {
+      throw new Error(`Font not loaded: ${family}`);
+    }
+    return font;
+  }
+
   private loadImage(src: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -124,5 +137,16 @@ export class AssetManager {
     const arrayBuffer = await res.arrayBuffer();
     const buffer = await ctx.decodeAudioData(arrayBuffer);
     this.sounds.set(key, buffer);
+  }
+
+  private async loadFont(
+    family: string,
+    src: string,
+    descriptors: FontFaceDescriptors
+  ): Promise<void> {
+    const face = new FontFace(family, `url(${src})`, descriptors);
+    const loaded = await face.load();
+    document.fonts.add(loaded);
+    this.fonts.set(family, loaded);
   }
 }

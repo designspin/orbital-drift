@@ -3,6 +3,8 @@ import { Vec2 } from "./types/vec2";
 interface BaseCollider {
   position: Vec2;
   onCollision(other: Collidable): void;
+  layer?: number;
+  mask?: number;
 }
 
 export interface CircleCollider extends BaseCollider {

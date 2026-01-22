@@ -18,16 +18,7 @@ export class EntityManager {
       entity.update(deltaTime, screenSize);
     }
     this.handleCollisions();
-
-    const spawned: iEntity[] = [];
-    for (const entity of this.entities) {
-      if (!entity.alive && "split" in entity && typeof (entity as any).split === "function") {
-        spawned.push(...(entity as any).split());
-      }
-    }
-
     this.entities = this.entities.filter((e) => e.alive);
-    this.entities.push(...spawned);
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -46,10 +37,20 @@ export class EntityManager {
         'colliderType' in e
     );
 
+    const hasMask = (e: Collidable): e is Collidable & { layer: number; mask: number } =>
+      typeof (e as { layer?: number }).layer === 'number' &&
+      typeof (e as { mask?: number }).mask === 'number';
+
     for (let i = 0; i < collidables.length; i++) {
       for (let j = i + 1; j < collidables.length; j++) {
         const a = collidables[i];
         const b = collidables[j];
+
+        if (hasMask(a) && hasMask(b)) {
+          if ((a.mask & b.layer) === 0 || (b.mask & a.layer) === 0) {
+            continue;
+          }
+        }
 
         let collided = false;
 

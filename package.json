@@ -17,6 +17,7 @@
     "dev:ch09": "npm run dev -w chapters/chapter-09-assets",
     "dev:ch10": "npm run dev -w chapters/chapter-10-camera",
     "dev:ch11": "npm run dev -w chapters/chapter-11-sound",
-    "dev:ch12": "npm run dev -w chapters/chapter-12-particles"
+    "dev:ch12": "npm run dev -w chapters/chapter-12-particles",
+    "dev:ch13": "npm run dev -w chapters/chapter-13-improvements"
   }
 }
