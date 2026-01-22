@@ -4,6 +4,7 @@ export * from './Entity';
 export * from './Input';
 export * from './Assets';
 export * from './State';
+export * from './Camera';
 export * from './types/index';
 export * from './ui/index';
 export * from './Collision';
