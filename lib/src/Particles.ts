@@ -110,6 +110,10 @@ const resolveColor = (spec: ColorSpec, t: number): string => {
 export class ParticleSystem extends Entity {
   private particles: Particle[] = [];
 
+  clear(): void {
+    this.particles = [];
+  }
+
   emit(options: ParticleOptions): void {
     const count = options.count ?? 1;
     const shape = options.shape ?? "circle";

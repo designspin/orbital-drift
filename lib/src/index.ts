@@ -8,6 +8,7 @@ export * from './Camera';
 export * from './Audio';
 export * from './Events';
 export * from './Easing';
+export * from './Systems';
 export * from './Particles';
 export * from './types/index';
 export * from './ui/index';
