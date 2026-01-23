@@ -13,12 +13,14 @@ Welcome! This book walks you through building a small canvas game engine in Type
 - Reusable architecture patterns (state machine, events, systems, and managers).
 
 ## How the book is structured
-Each chapter has three parts:
+Each chapter weaves three threads (sometimes explicitly, sometimes implicitly):
 1. **Concept** — The idea and why it matters.
 2. **Implementation** — The exact code added to the engine.
 3. **Application** — The feature used in a real game scenario.
 
-By the end, the engine is not a toy—it’s a real foundation you can extend.
+Early chapters like Setup and Drawing are more about scaffolding and API fluency, while later chapters make the game usage more explicit.
+
+By the end, the engine is not a toy, it’s a real foundation you can extend.
 
 ## What you need
 - Node.js and npm
