@@ -2,6 +2,8 @@
 
 This chapter is a guided tour of the Canvas 2D API. We draw basic primitives, explore stroke styles, text, gradients, transforms, and images. It’s a grab‑bag of techniques you’ll reuse constantly in later chapters.
 
+<DemoModal title="Chapter 2 Demo" src="/demos/ch02/" button-label="Play demo" />
+
 ## The canvas context
 
 Everything is done through a 2D rendering context:

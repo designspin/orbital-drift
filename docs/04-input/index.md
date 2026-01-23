@@ -2,6 +2,8 @@
 
 This chapter introduces keyboard input and shows how to drive movement and rotation from arrow keys. We add a shared `Input` helper in lib, then use it in the engine and the demo.
 
+<DemoModal title="Chapter 4 Demo" src="/demos/ch04/" button-label="Play demo" />
+
 ## The input helper (lib, ch04)
 
 The input system keeps track of three states:

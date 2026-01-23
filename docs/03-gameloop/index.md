@@ -2,6 +2,8 @@
 
 This chapter introduces the core loop: **update** for simulation and **render** for drawing. We’ll animate a rotating square, scale it over time, and display FPS so you can see the loop in action.
 
+<DemoModal title="Chapter 3 Demo" src="/demos/ch03/" button-label="Play demo" />
+
 ## The Engine base class
 
 We extend the shared `Engine` from the library:

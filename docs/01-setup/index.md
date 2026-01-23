@@ -5,8 +5,10 @@ This chapter gets a blank canvas on screen using Vite + TypeScript. We’ll wire
 ## What we’re building
 
 - A full-screen page with a centered canvas.
-- A fixed internal resolution of $800 \times 600$.
+- A fixed internal resolution of 800 × 600.
 - A simple draw call that proves the render pipeline is working.
+
+<DemoModal title="Chapter 1 Demo" src="/demos/ch01/" button-label="Play demo" />
 
 ## Project entry points
 
