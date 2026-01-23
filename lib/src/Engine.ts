@@ -10,6 +10,20 @@ type EngineInitOptions = {
   width?: number;
   height?: number;
   backgroundColor?: string;
+  resize?: {
+    mode?: "none" | "contain" | "cover";
+    maxDpr?: number;
+    minDpr?: number;
+    matchDevice?: boolean;
+    matchAspect?: {
+      base?: "width" | "height";
+      baseSize?: number;
+    };
+    matchAspectWhen?: {
+      maxShortSide?: number;
+      landscapeOnly?: boolean;
+    };
+  };
 };
 
 export class Engine {
@@ -19,6 +33,22 @@ export class Engine {
   private isRunning: boolean = false;
   private hasLoopStarted: boolean = false;
   protected ctx!: CanvasRenderingContext2D;
+  private rootElement?: HTMLElement;
+  private canvasContainer?: HTMLDivElement;
+  private logicalSize: Vec2 = { x: 800, y: 600 };
+  private baseLogicalSize: Vec2 = { x: 800, y: 600 };
+  private cssSize: Vec2 = { x: 800, y: 600 };
+  private resizeMode: "none" | "contain" | "cover" = "none";
+  private maxDpr: number = 1;
+  private minDpr: number = 1;
+  private matchDevice: boolean = false;
+  private matchAspectBase: "width" | "height" | null = null;
+  private matchAspectSize: number = 0;
+  private matchAspectMaxShortSide: number = 0;
+  private matchAspectLandscapeOnly: boolean = false;
+  private scale: number = 1;
+  private dpr: number = 1;
+  private onWindowResize = () => this.applyResize();
   protected uiLayers: UILayer[] = [];
   protected uiCanvas?: HTMLCanvasElement;
   protected uiCtx?: CanvasRenderingContext2D;
@@ -27,8 +57,38 @@ export class Engine {
 
   protected get screenSize(): Vec2 {
     return {
-      x: this.ctx.canvas.width,
-      y: this.ctx.canvas.height,
+      x: this.logicalSize.x,
+      y: this.logicalSize.y,
+    };
+  }
+
+  protected get viewportSize(): Vec2 {
+    return {
+      x: this.logicalSize.x,
+      y: this.logicalSize.y,
+    };
+  }
+
+  protected get canvasCssSize(): Vec2 {
+    return {
+      x: this.cssSize.x,
+      y: this.cssSize.y,
+    };
+  }
+
+  protected get renderScale(): number {
+    return this.scale;
+  }
+
+  protected get devicePixelRatio(): number {
+    return this.dpr;
+  }
+
+  protected screenToWorld(point: Vec2): Vec2 {
+    const rect = this.ctx.canvas.getBoundingClientRect();
+    return {
+      x: (point.x - rect.left) / this.scale,
+      y: (point.y - rect.top) / this.scale,
     };
   }
 
@@ -41,13 +101,39 @@ export class Engine {
     if (!app) {
       throw new Error(`Element with selector "${opts.selector}" not found.`);
     }
+    this.rootElement = app;
+    this.canvasContainer = document.createElement("div");
+    this.canvasContainer.style.position = "relative";
+    this.canvasContainer.style.display = "block";
+    this.canvasContainer.style.width = "100%";
+    this.canvasContainer.style.height = "100%";
+    this.canvasContainer.style.overflow = "hidden";
+    app.appendChild(this.canvasContainer);
+    this.logicalSize = {
+      x: opts.width || 800,
+      y: opts.height || 600,
+    };
+    this.baseLogicalSize = { ...this.logicalSize };
+    this.resizeMode = opts.resize?.mode ?? "none";
+    this.maxDpr = opts.resize?.maxDpr ?? 2;
+    this.minDpr = opts.resize?.minDpr ?? 1;
+    this.matchDevice = opts.resize?.matchDevice ?? false;
+    this.matchAspectBase = opts.resize?.matchAspect?.base ?? null;
+    this.matchAspectSize =
+      opts.resize?.matchAspect?.baseSize ??
+      (this.matchAspectBase === "width"
+        ? this.baseLogicalSize.x
+        : this.baseLogicalSize.y);
+    this.matchAspectMaxShortSide = opts.resize?.matchAspectWhen?.maxShortSide ?? 0;
+    this.matchAspectLandscapeOnly =
+      opts.resize?.matchAspectWhen?.landscapeOnly ?? false;
     const canvas = document.createElement("canvas");
-    canvas.width = opts.width || 800;
-    canvas.height = opts.height || 600;
+    canvas.width = this.logicalSize.x;
+    canvas.height = this.logicalSize.y;
     canvas.style.backgroundColor = opts.backgroundColor || "black";
     canvas.id = "game";
 
-    app.appendChild(canvas);
+    this.canvasContainer.appendChild(canvas);
     canvas.focus();
 
     const context = canvas.getContext("2d");
@@ -56,8 +142,22 @@ export class Engine {
     }
     this.ctx = context;
 
+    this.applyResize();
+    if (this.resizeMode !== "none") {
+      window.addEventListener("resize", this.onWindowResize);
+    }
+
     this.onInit();
   }
+
+  protected onResize(
+    _info: {
+      logicalSize: Vec2;
+      cssSize: Vec2;
+      scale: number;
+      dpr: number;
+    }
+  ): void {}
 
   protected onInit(): void {}
 
@@ -142,8 +242,8 @@ export class Engine {
     }
     this.uiTimeSinceUpdateMs = 0;
 
-    const w = this.uiCanvas!.width;
-    const h = this.uiCanvas!.height;
+    const w = this.logicalSize.x;
+    const h = this.logicalSize.y;
 
     for (const layer of this.uiLayers) {
       layer.update(deltaTime);
@@ -171,32 +271,14 @@ export class Engine {
   }
 
   private createUiCanvas(): void {
-    const parent = this.ctx.canvas.parentElement;
+    const parent = this.canvasContainer || this.ctx.canvas.parentElement;
     if (!parent) return;
 
-    const computed = window.getComputedStyle(parent);
-    if (computed.position === "static") {
-      parent.style.position = "relative";
-    }
-
     const canvas = document.createElement("canvas");
-    canvas.width = this.ctx.canvas.width;
-    canvas.height = this.ctx.canvas.height;
     canvas.style.position = "absolute";
     canvas.style.left = "0";
     canvas.style.top = "0";
-    const gameCanvas = this.ctx.canvas;
-    const gameStyles = window.getComputedStyle(gameCanvas);
-    canvas.style.width = gameStyles.width || gameCanvas.style.width || "100%";
-    canvas.style.height =
-      gameStyles.height || gameCanvas.style.height || "100%";
-    canvas.style.aspectRatio =
-      gameStyles.aspectRatio ||
-      gameCanvas.style.aspectRatio ||
-      `${gameCanvas.width} / ${gameCanvas.height}`;
-    canvas.style.objectFit =
-      gameStyles.objectFit || gameCanvas.style.objectFit || "contain";
-    canvas.style.display = gameStyles.display || "block";
+    canvas.style.display = "block";
     canvas.style.pointerEvents = "none";
     canvas.style.zIndex = "2";
     canvas.id = "ui";
@@ -210,6 +292,118 @@ export class Engine {
 
     this.uiCanvas = canvas;
     this.uiCtx = context;
+    this.syncUiCanvas();
+  }
+
+  private applyResize(): void {
+    if (!this.ctx) return;
+    const canvas = this.ctx.canvas;
+    const parent = this.rootElement || canvas.parentElement;
+    if (!parent) return;
+
+    if (this.matchDevice) {
+      this.logicalSize = {
+        x: Math.max(1, Math.floor(window.innerWidth)),
+        y: Math.max(1, Math.floor(window.innerHeight)),
+      };
+    } else {
+      const shortSide = Math.min(window.innerWidth, window.innerHeight);
+      const isLandscape = window.innerWidth >= window.innerHeight;
+      const allowAspectMatch =
+        !!this.matchAspectBase &&
+        (this.matchAspectMaxShortSide === 0 || shortSide <= this.matchAspectMaxShortSide) &&
+        (!this.matchAspectLandscapeOnly || isLandscape);
+
+      if (allowAspectMatch) {
+        const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+        if (this.matchAspectBase === "height") {
+          const height = Math.max(1, Math.floor(this.matchAspectSize));
+          const width = Math.max(1, Math.floor(height * aspect));
+          this.logicalSize = { x: width, y: height };
+        } else {
+          const width = Math.max(1, Math.floor(this.matchAspectSize));
+          const height = Math.max(1, Math.floor(width / aspect));
+          this.logicalSize = { x: width, y: height };
+        }
+      } else {
+        this.logicalSize = { ...this.baseLogicalSize };
+      }
+    }
+
+    const logical = this.logicalSize;
+    if (this.resizeMode === "none") {
+      this.scale = 1;
+      this.dpr = 1;
+      this.cssSize = { x: logical.x, y: logical.y };
+      canvas.width = logical.x;
+      canvas.height = logical.y;
+      if (this.canvasContainer) {
+        this.canvasContainer.style.width = `${logical.x}px`;
+        this.canvasContainer.style.height = `${logical.y}px`;
+      }
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.syncUiCanvas();
+      this.onResize({
+        logicalSize: this.logicalSize,
+        cssSize: this.cssSize,
+        scale: this.scale,
+        dpr: this.dpr,
+      });
+      return;
+    }
+
+    const rect = parent.getBoundingClientRect();
+    const scaleX = rect.width / logical.x;
+    const scaleY = rect.height / logical.y;
+    const scale =
+      this.resizeMode === "cover"
+        ? Math.max(scaleX, scaleY)
+        : Math.min(scaleX, scaleY);
+
+    const cssW = Math.max(1, Math.round(logical.x * scale));
+    const cssH = Math.max(1, Math.round(logical.y * scale));
+    const rawDpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(Math.max(rawDpr, this.minDpr), this.maxDpr);
+
+    this.scale = cssW / logical.x;
+    this.dpr = dpr;
+    this.cssSize = { x: cssW, y: cssH };
+
+    if (this.canvasContainer) {
+      this.canvasContainer.style.width = `${cssW}px`;
+      this.canvasContainer.style.height = `${cssH}px`;
+    }
+
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    canvas.style.aspectRatio = `${logical.x} / ${logical.y}`;
+    canvas.width = Math.max(1, Math.round(cssW * dpr));
+    canvas.height = Math.max(1, Math.round(cssH * dpr));
+
+    this.ctx.setTransform(this.scale * dpr, 0, 0, this.scale * dpr, 0, 0);
+    this.syncUiCanvas();
+    this.onResize({
+      logicalSize: this.logicalSize,
+      cssSize: this.cssSize,
+      scale: this.scale,
+      dpr: this.dpr,
+    });
+  }
+
+  private syncUiCanvas(): void {
+    if (!this.uiCanvas || !this.uiCtx) return;
+
+    const cssW = this.cssSize.x;
+    const cssH = this.cssSize.y;
+    const dpr = this.dpr;
+
+    this.uiCanvas.style.width = `${cssW}px`;
+    this.uiCanvas.style.height = `${cssH}px`;
+    this.uiCanvas.style.aspectRatio = `${this.logicalSize.x} / ${this.logicalSize.y}`;
+    this.uiCanvas.style.objectFit = "contain";
+    this.uiCanvas.width = Math.max(1, Math.round(cssW * dpr));
+    this.uiCanvas.height = Math.max(1, Math.round(cssH * dpr));
+    this.uiCtx.setTransform(this.scale * dpr, 0, 0, this.scale * dpr, 0, 0);
   }
 
   protected addEntity(entity: iEntity) {
