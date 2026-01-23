@@ -22,6 +22,7 @@ type EngineInitOptions = {
     matchAspectWhen?: {
       maxShortSide?: number;
       landscapeOnly?: boolean;
+      baseSize?: number;
     };
   };
 };
@@ -46,6 +47,7 @@ export class Engine {
   private matchAspectSize: number = 0;
   private matchAspectMaxShortSide: number = 0;
   private matchAspectLandscapeOnly: boolean = false;
+  private matchAspectWhenBaseSize: number = 0;
   private scale: number = 1;
   private dpr: number = 1;
   private onWindowResize = () => this.applyResize();
@@ -127,6 +129,7 @@ export class Engine {
     this.matchAspectMaxShortSide = opts.resize?.matchAspectWhen?.maxShortSide ?? 0;
     this.matchAspectLandscapeOnly =
       opts.resize?.matchAspectWhen?.landscapeOnly ?? false;
+    this.matchAspectWhenBaseSize = opts.resize?.matchAspectWhen?.baseSize ?? 0;
     const canvas = document.createElement("canvas");
     canvas.width = this.logicalSize.x;
     canvas.height = this.logicalSize.y;
@@ -262,6 +265,22 @@ export class Engine {
     this.uiLayers.push(layer);
   }
 
+  protected getUiCanvas(): HTMLCanvasElement | undefined {
+    if (!this.uiCtx) {
+      this.createUiCanvas();
+    }
+    return this.uiCanvas;
+  }
+
+  protected setUiPointerEvents(enabled: boolean): void {
+    if (!this.uiCtx) {
+      this.createUiCanvas();
+    }
+    if (!this.uiCanvas) return;
+    this.uiCanvas.style.pointerEvents = enabled ? "auto" : "none";
+    this.uiCanvas.style.touchAction = enabled ? "none" : "auto";
+  }
+
   protected removeUILayer(layer: UILayer): void {
     this.uiLayers = this.uiLayers.filter((l) => l !== layer);
   }
@@ -316,12 +335,15 @@ export class Engine {
 
       if (allowAspectMatch) {
         const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+        const baseSize = this.matchAspectWhenBaseSize > 0
+          ? this.matchAspectWhenBaseSize
+          : this.matchAspectSize;
         if (this.matchAspectBase === "height") {
-          const height = Math.max(1, Math.floor(this.matchAspectSize));
+          const height = Math.max(1, Math.floor(baseSize));
           const width = Math.max(1, Math.floor(height * aspect));
           this.logicalSize = { x: width, y: height };
         } else {
-          const width = Math.max(1, Math.floor(this.matchAspectSize));
+          const width = Math.max(1, Math.floor(baseSize));
           const height = Math.max(1, Math.floor(width / aspect));
           this.logicalSize = { x: width, y: height };
         }

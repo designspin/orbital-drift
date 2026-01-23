@@ -19,6 +19,8 @@
     "dev:ch11": "npm run dev -w chapters/chapter-11-sound",
     "dev:ch12": "npm run dev -w chapters/chapter-12-particles",
     "dev:ch13": "npm run dev -w chapters/chapter-13-improvements",
-    "dev:ch14": "npm run dev -w chapters/chapter-14-architecture"
+    "dev:ch14": "npm run dev -w chapters/chapter-14-architecture",
+    "dev:ch15": "npm run dev -w chapters/chapter-15-mobile",
+    "dev:ch16": "npm run dev -w chapters/chapter-16-actions"
   }
 }

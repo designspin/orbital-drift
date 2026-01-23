@@ -10,6 +10,7 @@ export * from './Events';
 export * from './Easing';
 export * from './Systems';
 export * from './Particles';
+export * from './TouchControls';
 export * from './types/index';
 export * from './ui/index';
 export * from './Collision';
