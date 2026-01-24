@@ -2,7 +2,7 @@ export const GAME_CONFIG = {
   seed: 1337,
   debug: {
     bossTest: false,
-    testWave: 5, // Set to 5, 10, 15, 20, 25+ for boss waves, or any wave number for testing
+    testWave: 0, // Set to 5, 10, 15, 20, 25+ for boss waves, or any wave number for testing
   },
   world: {
     width: 2400,

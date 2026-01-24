@@ -17,6 +17,9 @@ export class Player extends Entity implements CircleCollider {
   private sprite?: HTMLImageElement;
   private spriteRect?: { x: number; y: number; w: number; h: number };
   private shieldActive: boolean = false;
+  private invulnerableTimer: number = 0;
+  private invulnerableDuration: number = 3.0; // 3 seconds of invulnerability after spawn
+  private flashTimer: number = 0; // For flashing effect during invulnerability
   private get controller(): PlayerController {
     return this._controller;
   }
@@ -38,6 +41,14 @@ export class Player extends Entity implements CircleCollider {
     this.shieldActive = active;
   }
 
+  setInvulnerable(duration: number): void {
+    this.invulnerableTimer = duration;
+  }
+
+  isInvulnerable(): boolean {
+    return this.invulnerableTimer > 0;
+  }
+
   isShieldActive(): boolean {
     return this.shieldActive;
   }
@@ -47,6 +58,12 @@ export class Player extends Entity implements CircleCollider {
   }
 
   update(deltaTime: number, screenSize: Vec2): void {
+    // Update invulnerability timer
+    if (this.invulnerableTimer > 0) {
+      this.invulnerableTimer = Math.max(0, this.invulnerableTimer - deltaTime);
+      this.flashTimer += deltaTime * 10; // Fast flashing
+    }
+
     // Rotate player
     this.angle += this.controller.getRotation() * 180 * deltaTime;
 
@@ -97,6 +114,14 @@ export class Player extends Entity implements CircleCollider {
   }
 
   render(ctx: CanvasRenderingContext2D): void {
+    // Flash effect during invulnerability (skip rendering every other frame)
+    if (this.invulnerableTimer > 0) {
+      const flash = Math.sin(this.flashTimer) > 0;
+      if (!flash) {
+        return; // Skip rendering to create flashing effect
+      }
+    }
+
     ctx.save();
     ctx.translate(this.position.x, this.position.y);
     if (this.shieldActive) {

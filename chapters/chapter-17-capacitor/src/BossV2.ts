@@ -17,7 +17,7 @@ export type BossAttack =
   | { type: "spiral"; interval: number; arms: number; rotationSpeed: number }
   | { type: "wave"; interval: number; width: number; speed: number }
   | { type: "burst"; interval: number; bullets: number }
-  | { type: "beam"; chargeTime: number; duration: number; sweepAngle?: number }
+  | { type: "beam"; interval: number; chargeTime: number; duration: number; sweepAngle?: number }
   | { type: "minions"; interval: number; count: number }
   | { type: "shockwave"; interval: number; rings: number };
 
@@ -42,6 +42,8 @@ export type BossConfig = {
   deathDuration?: number;
 };
 
+type ViewBounds = { x: number; y: number; w: number; h: number };
+
 export class BossV2 extends Entity implements CircleCollider {
   radius: number;
   colliderType: "circle" = "circle";
@@ -53,6 +55,7 @@ export class BossV2 extends Entity implements CircleCollider {
   private tier: number;
   private sprite?: HTMLImageElement;
   private angle: number = 0;
+  private spriteRotationOffsetDeg: number = -90;
   private maxHealth: number;
   private health: number;
   private phases: BossPhase[];
@@ -106,8 +109,10 @@ export class BossV2 extends Entity implements CircleCollider {
 
   // Callbacks
   private getTarget: () => Vec2;
+  private isTargetInvulnerable?: () => boolean;
   private onShootProjectile: (position: Vec2, angle: number, type: "laser" | "missile") => void;
   private onSpawnMinion?: (position: Vec2) => void;
+  private getViewBounds?: () => ViewBounds;
   private onHit?: (position: Vec2, healthRatio: number) => void;
   private onPhaseChange?: (phase: number, phaseName: string) => void;
   private onDestroyed?: (position: Vec2) => void;
@@ -120,7 +125,9 @@ export class BossV2 extends Entity implements CircleCollider {
     getTarget: () => Vec2,
     onShootProjectile: (position: Vec2, angle: number, type: "laser" | "missile") => void,
     callbacks?: {
+      isTargetInvulnerable?: () => boolean;
       onSpawnMinion?: (position: Vec2) => void;
+      getViewBounds?: () => ViewBounds;
       onHit?: (position: Vec2, healthRatio: number) => void;
       onPhaseChange?: (phase: number, phaseName: string) => void;
       onDestroyed?: (position: Vec2) => void;
@@ -145,7 +152,9 @@ export class BossV2 extends Entity implements CircleCollider {
     // Set callbacks
     this.getTarget = getTarget;
     this.onShootProjectile = onShootProjectile;
+    this.isTargetInvulnerable = callbacks?.isTargetInvulnerable;
     this.onSpawnMinion = callbacks?.onSpawnMinion;
+    this.getViewBounds = callbacks?.getViewBounds;
     this.onHit = callbacks?.onHit;
     this.onPhaseChange = callbacks?.onPhaseChange;
     this.onDestroyed = callbacks?.onDestroyed;
@@ -212,16 +221,33 @@ export class BossV2 extends Entity implements CircleCollider {
     this.updateVisualEffects(deltaTime);
 
     // Keep within bounds
-    this.position.x = Math.max(this.radius, Math.min(this.position.x, screenSize.x - this.radius));
-    this.position.y = Math.max(this.radius, Math.min(this.position.y, screenSize.y - this.radius));
+    const viewBounds = this.getViewBounds?.();
+    if (viewBounds) {
+      const minX = viewBounds.x + this.radius;
+      const maxX = viewBounds.x + viewBounds.w - this.radius;
+      const minY = viewBounds.y + this.radius;
+      const maxY = viewBounds.y + viewBounds.h - this.radius;
+      this.position.x = Math.max(minX, Math.min(this.position.x, maxX));
+      this.position.y = Math.max(minY, Math.min(this.position.y, maxY));
+    } else {
+      this.position.x = Math.max(this.radius, Math.min(this.position.x, screenSize.x - this.radius));
+      this.position.y = Math.max(this.radius, Math.min(this.position.y, screenSize.y - this.radius));
+    }
   }
 
   private updateEntrance(deltaTime: number): void {
-    if (this.position.y < this.enterY) {
-      this.position.y = Math.min(this.enterY, this.position.y + 140 * deltaTime);
+    const viewBounds = this.getViewBounds?.();
+    const targetEnterY = viewBounds ? viewBounds.y + this.enterY : this.enterY;
+
+    if (this.position.y < targetEnterY) {
+      this.position.y = Math.min(targetEnterY, this.position.y + 140 * deltaTime);
     } else {
       this.hasEntered = true;
-      this.patrolAnchor = { x: this.position.x, y: this.position.y };
+      if (viewBounds) {
+        this.patrolAnchor = { x: viewBounds.x + viewBounds.w / 2, y: targetEnterY };
+      } else {
+        this.patrolAnchor = { x: this.position.x, y: this.position.y };
+      }
       this.onPhaseChange?.(0, this.currentPhase.name);
     }
   }
@@ -306,7 +332,10 @@ export class BossV2 extends Entity implements CircleCollider {
   private updateMovement(deltaTime: number, target: Vec2, screenSize: Vec2): void {
     this.movementPhase += deltaTime;
     const movement = this.currentPhase.movementPattern;
-    const anchor = this.patrolAnchor ?? { x: screenSize.x / 2, y: this.enterY };
+    const viewBounds = this.getViewBounds?.();
+    const anchor = viewBounds
+      ? { x: viewBounds.x + viewBounds.w / 2, y: viewBounds.y + this.enterY }
+      : (this.patrolAnchor ?? { x: screenSize.x / 2, y: this.enterY });
 
     // Store desired position instead of directly setting
     let desiredX = this.position.x;
@@ -408,8 +437,8 @@ export class BossV2 extends Entity implements CircleCollider {
       this.position.x += nx * movement.chaseSpeed * deltaTime;
       this.position.y += ny * movement.chaseSpeed * deltaTime;
 
-      // Check if ready to start a new dash
-      if (this.movementState.dashCooldownTimer <= 0) {
+      // Check if ready to start a new dash (but not if player is invulnerable)
+      if (this.movementState.dashCooldownTimer <= 0 && !this.isTargetInvulnerable?.()) {
         this.movementState.dashCooldownTimer = movement.dashCooldown;
         this.movementState.dashTelegraphTimer = 1.0; // 1 second warning!
         this.movementState.dashDir = { x: nx, y: ny };
@@ -510,6 +539,11 @@ export class BossV2 extends Entity implements CircleCollider {
   }
 
   private updateAttacks(deltaTime: number, target: Vec2): void {
+    // Don't attack if target is invulnerable (respawn protection)
+    if (this.isTargetInvulnerable?.()) {
+      return; // Simply don't execute attacks during invulnerability
+    }
+
     this.currentPhase.attacks.forEach((attack, index) => {
       const timerKey = `attack_${index}`;
       let timer = this.attackTimers.get(timerKey) ?? 0;
@@ -538,7 +572,7 @@ export class BossV2 extends Entity implements CircleCollider {
             ? -spread / 2 + (spread / (laserCount - 1)) * i
             : 0;
           const angle = (angleToTarget + spreadAngle) * 180 / Math.PI;
-          this.onShootProjectile(this.position, angle, "laser");
+          this.onShootProjectile({ x: this.position.x, y: this.position.y }, angle, "laser");
         }
         break;
 
@@ -547,7 +581,7 @@ export class BossV2 extends Entity implements CircleCollider {
         for (let i = 0; i < missileCount; i++) {
           const angle = (angleToTarget + (Math.random() - 0.5) * 0.3) * 180 / Math.PI;
           setTimeout(() => {
-            this.onShootProjectile(this.position, angle, "missile");
+            this.onShootProjectile({ x: this.position.x, y: this.position.y }, angle, "missile");
           }, i * 200);
         }
         break;
@@ -557,14 +591,14 @@ export class BossV2 extends Entity implements CircleCollider {
         for (let i = 0; i < attack.arms; i++) {
           const armAngle = this.spiralAngle + (i * Math.PI * 2 / attack.arms);
           const angle = armAngle * 180 / Math.PI;
-          this.onShootProjectile(this.position, angle, "laser");
+          this.onShootProjectile({ x: this.position.x, y: this.position.y }, angle, "laser");
         }
         break;
 
       case "burst":
         for (let i = 0; i < attack.bullets; i++) {
           const angle = (i / attack.bullets) * 360;
-          this.onShootProjectile(this.position, angle, "laser");
+          this.onShootProjectile({ x: this.position.x, y: this.position.y }, angle, "laser");
         }
         break;
 
@@ -574,7 +608,7 @@ export class BossV2 extends Entity implements CircleCollider {
         const startAngle = angleToTarget - attack.width / 200;
         for (let i = 0; i < waveCount; i++) {
           const angle = (startAngle + (attack.width / 200) * (i / waveCount) * 2) * 180 / Math.PI;
-          this.onShootProjectile(this.position, angle, "laser");
+          this.onShootProjectile({ x: this.position.x, y: this.position.y }, angle, "laser");
         }
         break;
 
@@ -681,7 +715,7 @@ export class BossV2 extends Entity implements CircleCollider {
     }
 
     ctx.translate(this.position.x, this.position.y);
-    ctx.rotate(this.angle * Math.PI / 180);
+    ctx.rotate((this.angle + this.spriteRotationOffsetDeg) * Math.PI / 180);
 
     // Draw phase glow
     if (this.phaseGlowIntensity > 0) {

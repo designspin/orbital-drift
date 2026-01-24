@@ -82,6 +82,12 @@ export class Enemy extends Entity implements CircleCollider {
   private opacity: number = 1.0; // For assassin cloaking
   private buffRadius: number = 200; // For commander
 
+  // Spawn-in effect
+  private spawnTimer: number = 0;
+  private spawnDuration: number = 0.8; // Total spawn animation time
+  private spawnScale: number = 0; // Start at 0, animate to 1
+  private spawnRotation: number = 0; // Spinning during spawn
+
   // Hit flash effect (optimized for mobile)
   private flashTimer: number = 0;
   private flashDuration: number = 0.12; // Same as boss
@@ -128,6 +134,11 @@ export class Enemy extends Entity implements CircleCollider {
 
     // Initialize behavior-specific parameters
     this.initializeBehavior();
+
+    // Initialize spawn effect
+    this.spawnTimer = this.spawnDuration;
+    this.spawnScale = 0;
+    this.spawnRotation = Math.random() * Math.PI * 2;
   }
 
   private initializeBehavior(): void {
@@ -227,6 +238,23 @@ export class Enemy extends Entity implements CircleCollider {
   }
 
   update(deltaTime: number, screenSize: Vec2): void {
+    // Update spawn animation
+    if (this.spawnTimer > 0) {
+      this.spawnTimer = Math.max(0, this.spawnTimer - deltaTime);
+
+      // Ease-out spawn scale
+      const t = 1 - (this.spawnTimer / this.spawnDuration);
+      this.spawnScale = this.easeOutBack(t);
+
+      // Spin during spawn
+      this.spawnRotation += deltaTime * 8 * (1 - t); // Slow down spinning as spawn completes
+
+      // Don't process normal AI during spawn
+      if (this.spawnTimer > this.spawnDuration * 0.3) {
+        return;
+      }
+    }
+
     // Update timers
     this.reactionTimer += deltaTime;
     this.thinkTimer += deltaTime;
@@ -723,8 +751,28 @@ export class Enemy extends Entity implements CircleCollider {
   render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
 
-    // Apply opacity for assassin
-    if (this.behavior === "assassin") {
+    // Apply spawn effect
+    if (this.spawnTimer > 0) {
+      // Scale and fade in
+      ctx.globalAlpha = Math.min(1, (1 - this.spawnTimer / this.spawnDuration) * 2);
+      ctx.translate(this.position.x, this.position.y);
+      ctx.scale(this.spawnScale, this.spawnScale);
+      ctx.rotate(this.spawnRotation);
+      ctx.translate(-this.position.x, -this.position.y);
+
+      // Draw spawn circle effect
+      const spawnProgress = 1 - (this.spawnTimer / this.spawnDuration);
+      if (spawnProgress < 0.5) {
+        ctx.strokeStyle = `rgba(100, 200, 255, ${(0.5 - spawnProgress) * 2})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.position.x, this.position.y, this.radius * 2 * (1 + spawnProgress), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Apply opacity for assassin (after spawn effect)
+    if (this.behavior === "assassin" && this.spawnTimer <= 0) {
       ctx.globalAlpha = this.opacity;
     }
 
@@ -876,6 +924,13 @@ export class Enemy extends Entity implements CircleCollider {
 
   getBehavior(): EnemyBehavior {
     return this.behavior;
+  }
+
+  private easeOutBack(t: number): number {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    const x = Math.max(0, Math.min(1, t));
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
   }
 
   private lerpAngle(from: number, to: number, t: number): number {

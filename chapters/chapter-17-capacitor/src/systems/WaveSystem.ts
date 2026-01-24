@@ -12,7 +12,7 @@ type WaveSystemOptions = {
   spawnEnemy: () => void;
   spawnAsteroid: (size: AsteroidSize) => void;
   spawnBoss?: (wave: number) => void;
-  onWaveStart?: (wave: number, seed: number, asteroidCount: number, enemyCount: number) => void;
+  onWaveStart?: (wave: number, seed: number, asteroidCount?: number, enemyCount?: number) => void;
 };
 
 export class WaveSystem implements System {
@@ -32,7 +32,7 @@ export class WaveSystem implements System {
   private spawnEnemy: () => void;
   private spawnAsteroid: (size: AsteroidSize) => void;
   private spawnBoss?: (wave: number) => void;
-  private onWaveStart?: (wave: number, seed: number, asteroidCount: number, enemyCount: number) => void;
+  private onWaveStart?: (wave: number, seed: number, asteroidCount?: number, enemyCount?: number) => void;
   private bossActive: boolean = false;
 
   constructor(opts: WaveSystemOptions) {

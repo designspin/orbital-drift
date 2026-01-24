@@ -43,7 +43,7 @@ class CH17 extends Engine {
   private enemySpriteRectStrafe = { x: 693, y: 199, w: 276, h: 201 };
   private enemySpriteRectDasher = { x: 372, y: 584, w: 281, h: 230 };
   private enemySpriteRectOrbiter = { x: 703, y: 603, w: 258, h: 204 };
-  private enemySpriteRectSine = { x: 70, y: 581, w: 244, h: 208 };
+  // private enemySpriteRectSine = { x: 70, y: 581, w: 244, h: 208 }; // Unused
   private enemy2SpriteRect1 = { x: 704, y: 102, w: 277, h: 289 };
   private enemy2SpriteRect2 = { x: 49, y: 104, w: 284, h: 270 };
   private enemy2SpriteRect3 = { x: 372, y: 119, w: 280, h: 266 };
@@ -60,7 +60,7 @@ class CH17 extends Engine {
   private enemyProjectileRects = [
     { x: 122, y: 653, w: 117, h: 132 },
   ];
-  private asteroidRects = {
+  private asteroidRects: Record<AsteroidSize, Array<{ x: number; y: number; w: number; h: number }>> = {
     XL: [
       { x: 43, y: 41, w: 352, h: 253 },
       { x: 441, y: 37, w: 359, h: 269 },
@@ -126,7 +126,7 @@ class CH17 extends Engine {
   private maxZoom = 1.6;
   private speedForMaxZoomOut = 180;
   private cameraFollowLerp = 4.5;
-  private seed = GAME_CONFIG.seed;
+  private seed: number = GAME_CONFIG.seed;
   private bossTestEnabled = false;
   private testWave = 0;
   private enemySpawnPlan: Array<{ kind: 'single' | 'sine'; x: number; y: number; typeIndex?: number }> = [];
@@ -135,6 +135,7 @@ class CH17 extends Engine {
   private asteroidSpawnPlanIndex = 0;
   private thrusterLoopActive = false;
   private waveOverlayTime = 0;
+  private bossMusicActive = false;
   private onPointerDown = () => this.input.setActionState('confirm', true);
   private onPointerUp = () => this.input.setActionState('confirm', false);
   private onTouchStart = () => this.input.setActionState('confirm', true);
@@ -216,6 +217,11 @@ class CH17 extends Engine {
   public updatePlaying(deltaTime: number): void {
     this.backgroundTime += deltaTime;
     this.updateThemeBlend(deltaTime);
+    const bossActive = this.waveSystem.isBossActive;
+    if (bossActive !== this.bossMusicActive) {
+      this.bossMusicActive = bossActive;
+      this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+    }
     this.shieldActive = this.input.isActionDown('shield') && this.shieldEnergy > 0;
     const thrusting = this.player.isThrusting();
     this.updateThrusterAudio(thrusting);
@@ -737,17 +743,18 @@ class CH17 extends Engine {
     ctx.closePath();
   }
 
-  private easeOutBack(t: number): number {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    const x = Math.max(0, Math.min(1, t));
-    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
-  }
+  // Unused easing functions - kept for future use
+  // private easeOutBack(t: number): number {
+  //   const c1 = 1.70158;
+  //   const c3 = c1 + 1;
+  //   const x = Math.max(0, Math.min(1, t));
+  //   return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  // }
 
-  private easeOutSpring(t: number): number {
-    const x = Math.max(0, Math.min(1, t));
-    return 1 - (Math.cos(x * Math.PI * 2.6) * Math.exp(-4 * x));
-  }
+  // private easeOutSpring(t: number): number {
+  //   const x = Math.max(0, Math.min(1, t));
+  //   return 1 - (Math.cos(x * Math.PI * 2.6) * Math.exp(-4 * x));
+  // }
 
   private springSettle(t: number): number {
     const x = Math.max(0, Math.min(1, t));
@@ -790,6 +797,7 @@ class CH17 extends Engine {
         this.assets.queueSound('lazerShoot', '/laserShoot.wav', audioCtx);
         this.assets.queueSound('laserShootEnemy', '/laserShootEnemy.wav', audioCtx);
         this.assets.queueSound('explosion', '/explosion.wav', audioCtx);
+        this.assets.queueSound('start', '/start.wav', audioCtx);
         this.assets.queueSound('thruster', '/thruster.wav', audioCtx);
         this.assets.queueFont('Space Grotesk', '/Space_Grotesk/SpaceGrotesk-VariableFont_wght.ttf');
         this.assets.queueImage('ship', '/spritesheet.png');
@@ -824,6 +832,7 @@ class CH17 extends Engine {
             this.audio.registerSound('lazerShoot', this.assets.getSound('lazerShoot'));
             this.audio.registerSound('laserShootEnemy', this.assets.getSound('laserShootEnemy'));
             this.audio.registerSound('explosion', this.assets.getSound('explosion'));
+            this.audio.registerSound('start', this.assets.getSound('start'));
             this.audio.registerSound('thruster', this.assets.getSound('thruster'));
 
             // Pre-cache all flash sprites for mobile performance
@@ -852,11 +861,16 @@ class CH17 extends Engine {
       update: (dt) => {
         this.menuPulseTime += dt;
         this.titleAnimTime += dt;
-        if (this.input.wasActionPressed('confirm') || this.input.wasActionPressed('fire')) {
-          void this.audio.resume().then(() => {
-            this.audio.playMusic('flags', 0.5);
-          });
+        const confirmPressed = this.input.wasActionPressed('confirm');
+        const firePressed = this.input.wasActionPressed('fire');
+        if (confirmPressed || firePressed) {
           this.resetGame();
+          const bossActive = this.waveSystem.isBossActive;
+          void this.audio.resume().then(() => {
+            this.bossMusicActive = bossActive;
+            this.audio.playSound('start', 0.7);
+            this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+          });
           this.stateMachine.set('playing');
         }
       },
@@ -870,7 +884,9 @@ class CH17 extends Engine {
       enter: () => {
         this.hudSystem.setHudVisible(true);
         this.hudSystem.setPauseVisible(false);
-        this.audio.playMusic('flags', 0.5);
+        const bossActive = this.waveSystem.isBossActive;
+        this.bossMusicActive = bossActive;
+        this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
         this.touchControls?.setVisible(true);
       },
       update: (dt) => {
@@ -929,6 +945,7 @@ class CH17 extends Engine {
             this.shipSpriteRect,
           );
           this.playerDeathExploded = false;
+          this.player.setInvulnerable(3.0); // 3 seconds of invulnerability after respawn
           this.addEntity(this.player);
           this.stateMachine.set('playing');
         }
@@ -1032,8 +1049,8 @@ class CH17 extends Engine {
       spawnBoss: (wave) => this.spawnBoss(wave),
       onWaveStart: (wave, seed, asteroidCount, enemyCount) => {
         setSeed(seed);
-        this.buildAsteroidSpawnPlan(asteroidCount);
-        this.buildEnemySpawnPlan(enemyCount, wave);
+        this.buildAsteroidSpawnPlan(asteroidCount ?? 0);
+        this.buildEnemySpawnPlan(enemyCount ?? 0, wave);
         this.setWaveTheme(wave);
       },
     });
@@ -1143,6 +1160,7 @@ class CH17 extends Engine {
     this.enemies = [];
     this.missiles = [];
     this.boss = undefined;
+    this.bossMusicActive = false;
     this.playerDeathExploded = false;
     this.entityManager.clear();
     this.camera.zoom = this.maxZoom;
@@ -1253,9 +1271,10 @@ class CH17 extends Engine {
     const bossConfig = this.createBossConfig(wave, bossTier, sprite);
 
     // Create the new BossV2 instance
+    const viewBounds = this.getCameraViewBounds();
     const bossV2 = new BossV2(
       bossConfig,
-      { x: this.worldSize.x / 2, y: -120 },
+      { x: viewBounds.x + viewBounds.w / 2, y: viewBounds.y - 120 },
       () => this.player.position,
       (pos, angle, type) => {
         if (type === "missile") {
@@ -1265,6 +1284,8 @@ class CH17 extends Engine {
         }
       },
       {
+        isTargetInvulnerable: () => this.player?.isInvulnerable() ?? false,
+        getViewBounds: () => this.getCameraViewBounds(),
         onSpawnMinion: (pos) => {
           // Spawn a scout enemy as minion
           const enemy = new Enemy(
@@ -1374,7 +1395,7 @@ class CH17 extends Engine {
               attacks: [
                 { type: "laser", interval: 2.0, count: 3, spread: 0.25 },
                 { type: "missile", interval: 3.0, count: 2 },
-                { type: "dash", interval: 6.0, dashSpeed: 160, dashDuration: 1.0, dashCooldown: 4.0, chaseSpeed: 80 }
+                { type: "burst", interval: 5.0, bullets: 8 }
               ],
               movementPattern: { type: "aggressive", speed: 100, dodgeRadius: 200 }
             },
@@ -1447,7 +1468,7 @@ class CH17 extends Engine {
               attacks: [
                 { type: "laser", interval: 2.0, count: 3, spread: 0.2 },
                 { type: "missile", interval: 3.0, count: 2 },
-                { type: "teleport", interval: 5.0, telegraphTime: 1.0 }
+                { type: "minions", interval: 8.0, count: 2 }
               ],
               movementPattern: { type: "teleport", interval: 4.0, telegraphTime: 1.0 }
             },
@@ -1577,6 +1598,8 @@ class CH17 extends Engine {
       },
     );
     this.addEnemy(enemy);
+
+    // Enemy spawn effect is handled in Enemy class with scale/fade animation
   }
 
   private spawnSwarmGroup(spawn: Vec2, wave: number): void {
@@ -1709,7 +1732,7 @@ class CH17 extends Engine {
     this.addAsteroid(new Asteroid({ x, y }, size, this.onAsteroidDestroyed, this.asteroidSprite, this.asteroidRects));
   }
 
-  private buildEnemySpawnPlan(enemyCount: number, wave: number): void {
+  private buildEnemySpawnPlan(enemyCount: number, _wave: number): void {
     this.enemySpawnPlan = [];
     this.enemySpawnPlanIndex = 0;
 
