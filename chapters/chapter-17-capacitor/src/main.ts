@@ -19,6 +19,7 @@ import { EffectsSystem } from './systems/EffectsSystem';
 import { HudSystem } from './systems/HudSystem';
 import { SpriteFlashCache } from './SpriteFlashCache';
 import { SpriteRegistry } from './SpriteRegistry';
+import { BackgroundRenderer } from './BackgroundRenderer';
 
 class CH17 extends Engine {
   private assets = new AssetManager();
@@ -28,6 +29,7 @@ class CH17 extends Engine {
   private events = new EventBus<GameEvents>();
   private sprites = new SpriteRegistry();
   private worldSize: Vec2 = { x: GAME_CONFIG.world.width, y: GAME_CONFIG.world.height };
+  private backgroundRenderer = new BackgroundRenderer();
   private systems = new SystemManager();
   private waveSystem!: WaveSystem;
   private scoreSystem!: ScoreSystem;
@@ -76,14 +78,7 @@ class CH17 extends Engine {
   private playerDeathExploded = false;
   private menuPulseTime = 0;
   private titleAnimTime = 0;
-  private backgroundTime = 0;
   private stateMachine = new StateMachine<GameState>();
-  private menuStars: Array<{ x: number; y: number; speed: number; size: number }> = [];
-  private starLayers: Array<{ speed: number; stars: Array<{ x: number; y: number; size: number; alpha: number }> }> = [];
-  private nebulae: Array<{ x: number; y: number; radius: number; color: string; alpha: number }> = [];
-  private spiralStars: Array<{ radius: number; angle: number; size: number; alpha: number }> = [];
-  private starTint: [number, number, number] = [210, 225, 255];
-  private nebulaAlphaScale: number = 1;
   private themeOverlay: string = 'rgba(0,0,0,0)';
   private currentTheme?: { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number };
   private targetTheme?: { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number };
@@ -119,6 +114,7 @@ class CH17 extends Engine {
     const seed = seedParam ? Number(seedParam) : GAME_CONFIG.seed;
     this.seed = Number.isFinite(seed) ? seed : GAME_CONFIG.seed;
     setSeed(this.seed);
+    this.backgroundRenderer.init(this.worldSize.x, this.worldSize.y);
     const params = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     this.bossTestEnabled =
@@ -140,8 +136,6 @@ class CH17 extends Engine {
     this.setUiUpdateInterval(100);
     this.setupSystems();
     this.setupEvents();
-    this.setupMenuStars();
-    this.setupBackground();
     this.setupStates();
     this.camera.zoom = this.maxZoom;
     this.stateMachine.set('loading');
@@ -184,7 +178,7 @@ class CH17 extends Engine {
   }
 
   public updatePlaying(deltaTime: number): void {
-    this.backgroundTime += deltaTime;
+    this.backgroundRenderer.updateBackgroundTime(deltaTime);
     this.updateThemeBlend(deltaTime);
     const bossActive = this.waveSystem.isBossActive;
     if (bossActive !== this.bossMusicActive) {
@@ -285,15 +279,15 @@ class CH17 extends Engine {
 
     // World background
     const theme = this.getBlendedTheme(this.waveSystem.currentWave);
-    this.starTint = theme.starTint;
-    this.nebulaAlphaScale = theme.nebulaAlphaScale;
+    this.backgroundRenderer.setStarTint(theme.starTint);
+    this.backgroundRenderer.setNebulaAlphaScale(theme.nebulaAlphaScale);
     this.themeOverlay = `rgba(${theme.overlay[0]}, ${theme.overlay[1]}, ${theme.overlay[2]}, ${theme.overlay[3].toFixed(3)})`;
     this.ctx.fillStyle = `rgb(${theme.base[0]}, ${theme.base[1]}, ${theme.base[2]})`;
     this.ctx.fillRect(0, 0, this.worldSize.x, this.worldSize.y);
     this.ctx.fillStyle = this.themeOverlay;
     this.ctx.fillRect(0, 0, this.worldSize.x, this.worldSize.y);
-    this.renderNebulae();
-    this.renderStars();
+    this.backgroundRenderer.renderNebulae(this.ctx, this.camera.position.x, this.camera.position.y, this.worldSize.x, this.worldSize.y);
+    this.backgroundRenderer.renderStars(this.ctx, this.camera.position.x, this.camera.position.y, this.worldSize.x, this.worldSize.y);
 
     // Entities in world space
     this.entityManager.render(this.ctx);
@@ -339,7 +333,7 @@ class CH17 extends Engine {
     this.ctx.fillStyle = '#000000';
     this.ctx.fillRect(0, 0, w, h);
 
-    this.renderMenuStars(w, h, this.menuPulseTime);
+    this.backgroundRenderer.renderMenuStars(this.ctx, w, h, this.menuPulseTime);
 
     const animDuration = 1.2;
     const t = Math.min(1, this.titleAnimTime / animDuration);
@@ -457,149 +451,6 @@ class CH17 extends Engine {
       w: viewW + padding * 2,
       h: viewH + padding * 2,
     };
-  }
-
-  private setupMenuStars(): void {
-    const count = 90;
-    this.menuStars = Array.from({ length: count }, () => ({
-      x: random(),
-      y: random(),
-      speed: 0.02 + random() * 0.08,
-      size: 0.6 + random() * 1.4,
-    }));
-  }
-
-  private setupBackground(): void {
-    const layers = [
-      { speed: 0.15, count: 220, size: [0.6, 1.4], alpha: [0.15, 0.4] },
-      { speed: 0.35, count: 160, size: [0.8, 2.0], alpha: [0.25, 0.6] },
-      { speed: 0.6, count: 120, size: [1.2, 2.6], alpha: [0.35, 0.8] },
-    ];
-
-    this.starLayers = layers.map((layer) => ({
-      speed: layer.speed,
-      stars: Array.from({ length: layer.count }, () => ({
-        x: Math.random() * this.worldSize.x,
-        y: Math.random() * this.worldSize.y,
-        size: layer.size[0] + Math.random() * (layer.size[1] - layer.size[0]),
-        alpha: layer.alpha[0] + Math.random() * (layer.alpha[1] - layer.alpha[0]),
-      })),
-    }));
-
-    const palette = ['#5b6cf5', '#7a4fff', '#2f88ff', '#42c7ff'];
-    this.nebulae = Array.from({ length: 6 }, () => ({
-      x: Math.random() * this.worldSize.x,
-      y: Math.random() * this.worldSize.y,
-      radius: 280 + Math.random() * 380,
-      color: palette[Math.floor(Math.random() * palette.length)],
-      alpha: 0.05 + Math.random() * 0.08,
-    }));
-
-    const armCount = 3;
-    const count = 320;
-    const maxRadius = Math.min(this.worldSize.x, this.worldSize.y) * 0.6;
-    this.spiralStars = Array.from({ length: count }, () => {
-      const arm = Math.floor(Math.random() * armCount);
-      const radius = Math.pow(Math.random(), 0.6) * maxRadius;
-      const baseAngle = radius * 0.02 + (arm * (Math.PI * 2) / armCount);
-      const jitter = (Math.random() - 0.5) * 0.6;
-      return {
-        radius,
-        angle: baseAngle + jitter,
-        size: 0.8 + Math.random() * 2.2,
-        alpha: 0.25 + Math.random() * 0.55,
-      };
-    });
-  }
-
-  private renderMenuStars(width: number, height: number, time: number): void {
-    this.ctx.save();
-    const cx = width / 2;
-    const cy = height / 2;
-    for (const star of this.menuStars) {
-      const y = (star.y + time * star.speed) % 1;
-      const x = star.x * width;
-      const sy = y * height;
-      const dx = x - cx;
-      const dy = sy - cy;
-      const dist = Math.hypot(dx, dy);
-      const angle = Math.atan2(dy, dx) + time * 0.3 + dist * 0.0015;
-      const radius = dist + Math.sin(time * 1.2 + dist * 0.02) * 4;
-      const swirlX = cx + Math.cos(angle) * radius;
-      const swirlY = cy + Math.sin(angle) * radius;
-      const twinkle = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(time * 2 + star.x * 12));
-      this.ctx.fillStyle = `rgba(120, 196, 255, ${twinkle.toFixed(3)})`;
-      this.ctx.beginPath();
-      this.ctx.arc(swirlX, swirlY, star.size, 0, Math.PI * 2);
-      this.ctx.fill();
-    }
-    this.ctx.restore();
-  }
-
-  private renderStars(): void {
-    this.ctx.save();
-    const center = { x: this.worldSize.x / 2, y: this.worldSize.y / 2 };
-    const [sr, sg, sb] = this.starTint;
-    for (const layer of this.starLayers) {
-      const offsetX = -this.camera.position.x * layer.speed;
-      const offsetY = -this.camera.position.y * layer.speed;
-      for (const star of layer.stars) {
-        const x = (star.x + offsetX) % this.worldSize.x;
-        const y = (star.y + offsetY) % this.worldSize.y;
-        const sx = x < 0 ? x + this.worldSize.x : x;
-        const sy = y < 0 ? y + this.worldSize.y : y;
-        this.ctx.fillStyle = `rgba(${sr}, ${sg}, ${sb}, ${star.alpha.toFixed(3)})`;
-        this.ctx.beginPath();
-        this.ctx.arc(sx, sy, star.size, 0, Math.PI * 2);
-        this.ctx.fill();
-      }
-    }
-    this.ctx.restore();
-
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = 'lighter';
-    const rotation = this.backgroundTime * 0.08;
-    for (const star of this.spiralStars) {
-      const angle = star.angle + rotation;
-      const x = center.x + Math.cos(angle) * star.radius;
-      const y = center.y + Math.sin(angle) * star.radius;
-      const pulse = 0.6 + 0.4 * Math.sin(this.backgroundTime * 1.2 + star.radius * 0.02);
-      const alpha = star.alpha * pulse;
-      this.ctx.fillStyle = `rgba(150, 200, 255, ${alpha.toFixed(3)})`;
-      this.ctx.beginPath();
-      this.ctx.arc(x, y, star.size, 0, Math.PI * 2);
-      this.ctx.fill();
-    }
-    this.ctx.restore();
-  }
-
-  private renderNebulae(): void {
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = 'lighter';
-    for (const nebula of this.nebulae) {
-      const gradient = this.ctx.createRadialGradient(
-        nebula.x,
-        nebula.y,
-        0,
-        nebula.x,
-        nebula.y,
-        nebula.radius,
-      );
-      const alphaScale = this.nebulaAlphaScale;
-      gradient.addColorStop(0, `rgba(255,255,255,${(nebula.alpha * 0.2 * alphaScale).toFixed(3)})`);
-      gradient.addColorStop(0.4, `rgba(255,255,255,${(nebula.alpha * 0.12 * alphaScale).toFixed(3)})`);
-      gradient.addColorStop(1, `rgba(0,0,0,0)`);
-      this.ctx.fillStyle = gradient;
-      this.ctx.beginPath();
-      this.ctx.arc(nebula.x, nebula.y, nebula.radius, 0, Math.PI * 2);
-      this.ctx.fill();
-
-      this.ctx.fillStyle = `rgba(${parseInt(nebula.color.slice(1,3),16)}, ${parseInt(nebula.color.slice(3,5),16)}, ${parseInt(nebula.color.slice(5,7),16)}, ${(nebula.alpha * 0.6 * alphaScale).toFixed(3)})`;
-      this.ctx.beginPath();
-      this.ctx.arc(nebula.x, nebula.y, nebula.radius * 0.75, 0, Math.PI * 2);
-      this.ctx.fill();
-    }
-    this.ctx.restore();
   }
 
   private getWaveTheme(wave: number): { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number } {
