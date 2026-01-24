@@ -19,7 +19,7 @@ import { HudSystem } from './systems/HudSystem';
 import { SpriteFlashCache } from './SpriteFlashCache';
 import { SpriteRegistry } from './SpriteRegistry';
 import { BackgroundRenderer } from './BackgroundRenderer';
-import { StoryCrawl } from './StoryCrawl';
+import { ShipShowcase } from './ShipShowcase';
 
 class CH17 extends Engine {
   private assets = new AssetManager();
@@ -67,9 +67,9 @@ class CH17 extends Engine {
   private playerDeathExploded = false;
   private menuPulseTime = 0;
   private titleAnimTime = 0;
-  private storyCrawl = new StoryCrawl();
+  private shipShowcase = new ShipShowcase();
   private idleTimeInMenu = 0;
-  private menuIdleThreshold = 8; // seconds before showing story crawl
+  private menuIdleThreshold = 8; // seconds before showing ship showcase
   private stateMachine = new StateMachine<GameState>();
   private themeOverlay: string = 'rgba(0,0,0,0)';
   private currentTheme?: { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number };
@@ -325,13 +325,21 @@ class CH17 extends Engine {
   }
 
   private renderTitleScreen(titleOffsetY: number = 0, promptOffsetY: number = 0): void {
+    this.renderTitleBackground();
+    this.renderTitleText(titleOffsetY, promptOffsetY);
+  }
+
+  private renderTitleBackground(): void {
     const { x: w, y: h } = this.viewportSize;
     this.ctx.clearRect(0, 0, w, h);
     this.ctx.fillStyle = '#000000';
     this.ctx.fillRect(0, 0, w, h);
 
     this.backgroundRenderer.renderMenuStars(this.ctx, w, h, this.menuPulseTime);
+  }
 
+  private renderTitleText(titleOffsetY: number = 0, promptOffsetY: number = 0): void {
+    const { x: w, y: h } = this.viewportSize;
     const animDuration = 1.2;
     const t = Math.min(1, this.titleAnimTime / animDuration);
       const spring = this.springSettle(t);
@@ -673,7 +681,7 @@ class CH17 extends Engine {
         this.menuPulseTime = 0;
         this.titleAnimTime = 0;
         this.idleTimeInMenu = 0;
-        this.storyCrawl.reset();
+        this.shipShowcase.reset();
         this.stopThrusterAudio();
         this.touchControls?.setVisible(false);
       },
@@ -689,18 +697,18 @@ class CH17 extends Engine {
                         this.input.wasActionPressed('up') ||
                         this.input.wasActionPressed('down');
 
-        // Handle story crawl
-        if (this.storyCrawl.isRunning()) {
-          // Update the crawl
-          const stillActive = this.storyCrawl.update(dt);
+        // Handle ship showcase
+        if (this.shipShowcase.isRunning()) {
+          // Update the showcase
+          const stillActive = this.shipShowcase.update(dt);
 
-          // Exit crawl on any input
+          // Exit showcase on any input
           if (anyInput) {
-            this.storyCrawl.stop();
+            this.shipShowcase.stop();
             this.idleTimeInMenu = 0;
           }
 
-          // Reset idle timer when crawl ends naturally
+          // Reset idle timer when showcase ends naturally
           if (!stillActive) {
             this.idleTimeInMenu = 0;
           }
@@ -712,9 +720,9 @@ class CH17 extends Engine {
             this.idleTimeInMenu += dt;
           }
 
-          // Start crawl after idle threshold
+          // Start showcase after idle threshold
           if (this.idleTimeInMenu >= this.menuIdleThreshold) {
-            this.storyCrawl.start();
+            this.shipShowcase.start();
             this.idleTimeInMenu = 0;
           }
 
@@ -732,15 +740,23 @@ class CH17 extends Engine {
         }
       },
       render: () => {
-        // Always render title screen with offsets
-        const titleOffset = this.storyCrawl.getTitleOffset();
-        const promptOffset = this.storyCrawl.getPromptOffset();
-        this.renderTitleScreen(titleOffset, promptOffset);
+        // Render title background first
+        this.renderTitleBackground();
 
-        // Render crawl text on top if active
-        if (this.storyCrawl.isRunning()) {
-          this.storyCrawl.renderCrawlText(this.ctx, this.viewportSize.x, this.viewportSize.y);
+        // Render ship showcase on top if active
+        if (this.shipShowcase.isRunning()) {
+          this.shipShowcase.render(this.ctx, this.viewportSize.x, this.viewportSize.y, {
+            enemy: this.enemySprite ?? null,
+            enemy2: this.enemy2Sprite ?? null,
+            bosses: this.bossSprites,
+            finalBoss: this.finalBossSprite ?? null,
+          });
         }
+
+        // Always render title text/prompt on top
+        const titleOffset = this.shipShowcase.getTitleOffset();
+        const promptOffset = this.shipShowcase.getPromptOffset();
+        this.renderTitleText(titleOffset, promptOffset);
       },
     };
 
