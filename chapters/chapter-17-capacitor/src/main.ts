@@ -18,6 +18,7 @@ import { ScoreSystem } from './systems/ScoreSystem';
 import { EffectsSystem } from './systems/EffectsSystem';
 import { HudSystem } from './systems/HudSystem';
 import { SpriteFlashCache } from './SpriteFlashCache';
+import { SpriteRegistry } from './SpriteRegistry';
 
 class CH17 extends Engine {
   private assets = new AssetManager();
@@ -25,6 +26,7 @@ class CH17 extends Engine {
   private camera = new Camera();
   private particles = new ParticleSystem();
   private events = new EventBus<GameEvents>();
+  private sprites = new SpriteRegistry();
   private worldSize: Vec2 = { x: GAME_CONFIG.world.width, y: GAME_CONFIG.world.height };
   private systems = new SystemManager();
   private waveSystem!: WaveSystem;
@@ -39,17 +41,7 @@ class CH17 extends Engine {
   private finalBossSprite?: HTMLImageElement;
   private projectileSprite?: HTMLImageElement;
   private asteroidSprite?: HTMLImageElement;
-  private enemySpriteRect = { x: 376, y: 187, w: 274, h: 218 };
-  private enemySpriteRectStrafe = { x: 693, y: 199, w: 276, h: 201 };
-  private enemySpriteRectDasher = { x: 372, y: 584, w: 281, h: 230 };
-  private enemySpriteRectOrbiter = { x: 703, y: 603, w: 258, h: 204 };
-  // private enemySpriteRectSine = { x: 70, y: 581, w: 244, h: 208 }; // Unused
-  private enemy2SpriteRect1 = { x: 704, y: 102, w: 277, h: 289 };
-  private enemy2SpriteRect2 = { x: 49, y: 104, w: 284, h: 270 };
-  private enemy2SpriteRect3 = { x: 372, y: 119, w: 280, h: 266 };
-  private enemy2SpriteRect4 = { x: 55, y: 552, w: 271, h: 254 };
-  private enemy2SpriteRect5 = { x: 702, y: 560, w: 281, h: 245 };
-  private enemy2SpriteRect6 = { x: 370, y: 569, w: 284, h: 225 };
+  // Enemy sprite rectangles now in SpriteRegistry
   private missileRects = [
     { x: 142, y: 167, w: 76, h: 225 },
     { x: 311, y: 169, w: 74, h: 223 },
@@ -60,30 +52,7 @@ class CH17 extends Engine {
   private enemyProjectileRects = [
     { x: 122, y: 653, w: 117, h: 132 },
   ];
-  private asteroidRects: Record<AsteroidSize, Array<{ x: number; y: number; w: number; h: number }>> = {
-    XL: [
-      { x: 43, y: 41, w: 352, h: 253 },
-      { x: 441, y: 37, w: 359, h: 269 },
-    ],
-    L: [
-      { x: 37, y: 361, w: 220, h: 177 },
-      { x: 305, y: 372, w: 234, h: 171 },
-      { x: 587, y: 375, w: 224, h: 168 },
-    ],
-    M: [
-      { x: 48, y: 638, w: 168, h: 139 },
-      { x: 269, y: 650, w: 155, h: 125 },
-      { x: 476, y: 656, w: 149, h: 116 },
-      { x: 678, y: 658, w: 136, h: 114 },
-    ],
-    S: [
-      { x: 67, y: 891, w: 97, h: 73 },
-      { x: 227, y: 888, w: 95, h: 76 },
-      { x: 387, y: 888, w: 95, h: 76 },
-      { x: 544, y: 892, w: 95, h: 74 },
-      { x: 701, y: 895, w: 81, h: 67 },
-    ],
-  } as const;
+  // Asteroid sprite rectangles now in SpriteRegistry
   private touchControls?: TouchControls;
 
   private lives = 3;
@@ -1293,7 +1262,7 @@ class CH17 extends Engine {
             () => this.player.position,
             (pos, angle) => this.spawnEnemyBullet(pos, angle, 0),
             this.enemySprite,
-            this.enemySpriteRect,
+            this.sprites.enemies.default,
             (pos) => this.events.emit('enemy:destroyed', { position: pos }),
             {
               behavior: 'scout',
@@ -1617,7 +1586,7 @@ class CH17 extends Engine {
         () => this.player.position,
         (pos, angle) => this.spawnEnemyBullet(pos, angle, 0),
         this.enemy2Sprite,
-        this.enemy2SpriteRect3,
+        this.sprites.enemies2.type3,
         (pos) => this.events.emit('enemy:destroyed', { position: pos }),
         {
           behavior: 'swarm',
@@ -1637,70 +1606,70 @@ class CH17 extends Engine {
     const allTypes = [
       {
         behavior: 'scout' as const,
-        spriteRect: this.enemySpriteRect,
+        spriteRect: this.sprites.enemies.default,
         sprite: this.enemySprite,
         minWave: 1,
         weight: 3, // How likely to spawn
       },
       {
         behavior: 'hunter' as const,
-        spriteRect: this.enemySpriteRectStrafe,
+        spriteRect: this.sprites.enemies.default,
         sprite: this.enemySprite,
         minWave: 2,
         weight: 2,
       },
       {
         behavior: 'guardian' as const,
-        spriteRect: this.enemySpriteRectDasher,
+        spriteRect: this.sprites.enemies.strafe,
         sprite: this.enemySprite,
         minWave: 3,
         weight: 2,
       },
       {
         behavior: 'interceptor' as const,
-        spriteRect: this.enemySpriteRectOrbiter,
+        spriteRect: this.sprites.enemies.dasher,
         sprite: this.enemySprite,
         minWave: 4,
         weight: 2,
       },
       {
         behavior: 'bomber' as const,
-        spriteRect: this.enemy2SpriteRect1,
-        sprite: this.enemy2Sprite,
+        spriteRect: this.sprites.enemies.orbiter,
+        sprite: this.enemySprite,
         minWave: 5,
         weight: 1,
       },
       {
         behavior: 'sniper' as const,
-        spriteRect: this.enemy2SpriteRect2,
+        spriteRect: this.sprites.enemies2.type1,
         sprite: this.enemy2Sprite,
         minWave: 6,
         weight: 1,
       },
       {
         behavior: 'swarm' as const,
-        spriteRect: this.enemy2SpriteRect3,
+        spriteRect: this.sprites.enemies2.type3,
         sprite: this.enemy2Sprite,
         minWave: 7,
         weight: 4, // Spawns in groups
       },
       {
         behavior: 'elite' as const,
-        spriteRect: this.enemy2SpriteRect4,
+        spriteRect: this.sprites.enemies2.type4,
         sprite: this.enemy2Sprite,
         minWave: 8,
         weight: 1,
       },
       {
         behavior: 'assassin' as const,
-        spriteRect: this.enemy2SpriteRect5,
+        spriteRect: this.sprites.enemies2.type2,
         sprite: this.enemy2Sprite,
         minWave: 10,
         weight: 1,
       },
       {
         behavior: 'commander' as const,
-        spriteRect: this.enemy2SpriteRect6,
+        spriteRect: this.sprites.enemies2.type4,
         sprite: this.enemy2Sprite,
         minWave: 12,
         weight: 1,
@@ -1729,7 +1698,7 @@ class CH17 extends Engine {
       : this.getPlannedSpawnPosition(160, 240);
     const x = spawn.x;
     const y = spawn.y;
-    this.addAsteroid(new Asteroid({ x, y }, size, this.onAsteroidDestroyed, this.asteroidSprite, this.asteroidRects));
+    this.addAsteroid(new Asteroid({ x, y }, size, this.onAsteroidDestroyed, this.asteroidSprite, this.sprites.asteroids as any));
   }
 
   private buildEnemySpawnPlan(enemyCount: number, _wave: number): void {
@@ -1870,20 +1839,20 @@ class CH17 extends Engine {
 
     // Pre-cache enemy 1 sprites
     if (this.enemySprite) {
-      flashCache.preRenderFlashLevels('enemy_scout', this.enemySprite, this.enemySpriteRect, levels);
-      flashCache.preRenderFlashLevels('enemy_hunter', this.enemySprite, this.enemySpriteRectStrafe, levels);
-      flashCache.preRenderFlashLevels('enemy_guardian', this.enemySprite, this.enemySpriteRectDasher, levels);
-      flashCache.preRenderFlashLevels('enemy_interceptor', this.enemySprite, this.enemySpriteRectOrbiter, levels);
+      flashCache.preRenderFlashLevels('enemy_scout', this.enemySprite, this.sprites.enemies.default, levels);
+      flashCache.preRenderFlashLevels('enemy_hunter', this.enemySprite, this.sprites.enemies.default, levels);
+      flashCache.preRenderFlashLevels('enemy_guardian', this.enemySprite, this.sprites.enemies.strafe, levels);
+      flashCache.preRenderFlashLevels('enemy_interceptor', this.enemySprite, this.sprites.enemies.dasher, levels);
+      flashCache.preRenderFlashLevels('enemy_bomber', this.enemySprite, this.sprites.enemies.orbiter, levels);
     }
 
     // Pre-cache enemy 2 sprites
     if (this.enemy2Sprite) {
-      flashCache.preRenderFlashLevels('enemy_bomber', this.enemy2Sprite, this.enemy2SpriteRect1, levels);
-      flashCache.preRenderFlashLevels('enemy_sniper', this.enemy2Sprite, this.enemy2SpriteRect2, levels);
-      flashCache.preRenderFlashLevels('enemy_swarm', this.enemy2Sprite, this.enemy2SpriteRect3, levels);
-      flashCache.preRenderFlashLevels('enemy_elite', this.enemy2Sprite, this.enemy2SpriteRect4, levels);
-      flashCache.preRenderFlashLevels('enemy_assassin', this.enemy2Sprite, this.enemy2SpriteRect5, levels);
-      flashCache.preRenderFlashLevels('enemy_commander', this.enemy2Sprite, this.enemy2SpriteRect6, levels);
+      flashCache.preRenderFlashLevels('enemy_sniper', this.enemy2Sprite, this.sprites.enemies2.type1, levels);
+      flashCache.preRenderFlashLevels('enemy_assassin', this.enemy2Sprite, this.sprites.enemies2.type2, levels);
+      flashCache.preRenderFlashLevels('enemy_swarm', this.enemy2Sprite, this.sprites.enemies2.type3, levels);
+      flashCache.preRenderFlashLevels('enemy_elite', this.enemy2Sprite, this.sprites.enemies2.type4, levels);
+      flashCache.preRenderFlashLevels('enemy_commander', this.enemy2Sprite, this.sprites.enemies2.type4, levels);
     }
 
     // Pre-cache boss sprites
