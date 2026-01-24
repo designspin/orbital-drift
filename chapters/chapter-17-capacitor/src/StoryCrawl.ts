@@ -25,7 +25,7 @@ export class StoryCrawl {
   ];
 
   private scrollY: number = 0;
-  private scrollSpeed: number = 30; // pixels per second
+  private scrollSpeed: number = 40; // pixels per second
   private transitionDuration: number = 1.2;
   private transitionTimer: number = 0;
   private fadeOutDuration: number = 1.0;
@@ -33,8 +33,7 @@ export class StoryCrawl {
   private isActive: boolean = false;
   private isTransitioning: boolean = false;
   private isFadingOut: boolean = false;
-  private lineHeight: number = 40;
-  private perspectiveScale: number = 0.5; // How much smaller text gets at the top
+  private lineHeight: number = 50; // Increased for better readability with perspective
   private titleOffset: number = 0; // How much to move title up
   private promptOffset: number = 0; // How much to move prompt down
 
@@ -114,8 +113,6 @@ export class StoryCrawl {
 
     ctx.save();
 
-    // Don't clear screen - let background show through
-
     // Calculate fade alpha based on transition progress
     let alpha = 1;
     if (this.isTransitioning) {
@@ -124,64 +121,81 @@ export class StoryCrawl {
       alpha = 1 - (this.fadeTimer / this.fadeOutDuration);
     }
 
-    // Setup for perspective text
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    // Setup perspective transformation
+    const crawlAreaTop = 150;
+    const crawlAreaBottom = height - 100;
+    const centerX = width / 2;
+    const centerY = height / 2;
 
-    // Create gradient for text fade at top and bottom - using center area only
-    const crawlAreaTop = 150; // Space for title
-    const crawlAreaBottom = height - 100; // Space for prompt
-    const crawlHeight = crawlAreaBottom - crawlAreaTop;
-
-    // Create clipping region for the crawl text
+    // Create clipping region
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, crawlAreaTop, width, crawlHeight);
+    ctx.rect(0, crawlAreaTop, width, crawlAreaBottom - crawlAreaTop);
     ctx.clip();
 
-    const gradient = ctx.createLinearGradient(0, crawlAreaTop, 0, crawlAreaBottom);
-    gradient.addColorStop(0, `rgba(255, 223, 0, 0)`);
-    gradient.addColorStop(0.1, `rgba(255, 223, 0, ${alpha})`);
-    gradient.addColorStop(0.9, `rgba(255, 223, 0, ${alpha})`);
-    gradient.addColorStop(1, `rgba(255, 223, 0, 0)`);
+    // Apply 3D perspective transformation
+    // This simulates looking at text laying flat that's tilted away from us
+    const perspectiveAngle = 65; // degrees - how much the text is tilted
+    const rad = (perspectiveAngle * Math.PI) / 180;
 
-    // Draw crawling text with perspective
+    ctx.translate(centerX, centerY);
+
+    // Setup text properties
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = `rgba(255, 223, 0, ${alpha})`;
+
+    // Draw each line with perspective transformation
     this.crawlText.forEach((line, index) => {
-      const baseY = height / 2 - this.scrollY + (index * this.lineHeight) + 200;
+      // Calculate position in 3D space
+      const y3d = -this.scrollY + (index * this.lineHeight) + 300;
 
-      // Skip lines that are too far off screen
-      if (baseY < crawlAreaTop - 100 || baseY > crawlAreaBottom + 100) return;
+      // Skip if too far away or behind viewer
+      if (y3d < -500 || y3d > 800) return;
 
-      // Calculate perspective scale based on Y position
-      const normalizedY = (baseY - crawlAreaTop) / crawlHeight;
-      const perspectiveFactor = 1 - (1 - this.perspectiveScale) * (1 - normalizedY);
-      const scale = Math.max(0.3, Math.min(1, perspectiveFactor));
+      // Apply perspective projection
+      // As text gets further away (smaller y3d), it should:
+      // 1. Move up the screen (smaller screenY)
+      // 2. Get smaller (smaller scale)
+      // 3. Get closer together (perspective compression)
+
+      const distance = Math.max(0.1, (y3d + 200) / 400); // Normalize distance
+      const screenY = y3d * Math.cos(rad) * distance - 100;
+      const scale = Math.pow(distance, 1.5); // Exponential scaling for better perspective
+
+      // Fade based on distance
+      const distanceFade = Math.max(0, Math.min(1, (1 - Math.abs(y3d - 150) / 600)));
+
+      ctx.save();
+
+      // Apply transformations
+      ctx.translate(0, screenY);
+      ctx.scale(1, scale * 0.6); // Compress Y more than X for perspective
 
       // Larger font for title lines
       const isTitle = index < 2;
-      const baseFontSize = isTitle ? 36 : 20;
+      const baseFontSize = isTitle ? 42 : 24;
       const fontSize = baseFontSize * scale;
 
-      ctx.font = `${fontSize}px 'Courier New', monospace`;
-      ctx.fillStyle = gradient;
+      ctx.font = `bold ${fontSize}px 'Courier New', monospace`;
+      ctx.fillStyle = `rgba(255, 223, 0, ${alpha * distanceFade})`;
 
-      // Apply perspective transformation
-      const centerX = width / 2;
-      const perspectiveX = centerX;
-      const perspectiveY = baseY;
+      // Add glow for nearby text
+      if (distanceFade > 0.5) {
+        ctx.shadowColor = `rgba(255, 223, 0, ${0.5 * distanceFade})`;
+        ctx.shadowBlur = 3 * scale;
+      }
 
-      // Draw text with slight shadow for depth
-      ctx.shadowColor = 'rgba(255, 223, 0, 0.5)';
-      ctx.shadowBlur = 2 * scale;
-      ctx.fillText(line, perspectiveX, perspectiveY);
+      ctx.fillText(line, 0, 0);
+
+      ctx.restore();
     });
 
     ctx.restore(); // Remove clipping
+    ctx.restore(); // Remove main transformation
 
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
-
-    ctx.restore();
   }
 
   getTitleOffset(): number {
