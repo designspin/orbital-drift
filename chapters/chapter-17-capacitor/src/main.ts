@@ -19,6 +19,7 @@ import { HudSystem } from './systems/HudSystem';
 import { SpriteFlashCache } from './SpriteFlashCache';
 import { SpriteRegistry } from './SpriteRegistry';
 import { BackgroundRenderer } from './BackgroundRenderer';
+import { StoryCrawl } from './StoryCrawl';
 
 class CH17 extends Engine {
   private assets = new AssetManager();
@@ -66,6 +67,9 @@ class CH17 extends Engine {
   private playerDeathExploded = false;
   private menuPulseTime = 0;
   private titleAnimTime = 0;
+  private storyCrawl = new StoryCrawl();
+  private idleTimeInMenu = 0;
+  private menuIdleThreshold = 8; // seconds before showing story crawl
   private stateMachine = new StateMachine<GameState>();
   private themeOverlay: string = 'rgba(0,0,0,0)';
   private currentTheme?: { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number };
@@ -282,7 +286,7 @@ class CH17 extends Engine {
     this.backgroundRenderer.renderNebulae(this.ctx, this.camera.position.x, this.camera.position.y, this.worldSize.x, this.worldSize.y);
     this.backgroundRenderer.renderStars(this.ctx, this.camera.position.x, this.camera.position.y, this.worldSize.x, this.worldSize.y);
 
-    // Entities in world space
+    // Render entities - EntityManager now handles render layers natively
     this.entityManager.render(this.ctx);
 
     // World bounds
@@ -320,7 +324,7 @@ class CH17 extends Engine {
     }
   }
 
-  private renderTitleScreen(): void {
+  private renderTitleScreen(titleOffsetY: number = 0, promptOffsetY: number = 0): void {
     const { x: w, y: h } = this.viewportSize;
     this.ctx.clearRect(0, 0, w, h);
     this.ctx.fillStyle = '#000000';
@@ -341,7 +345,7 @@ class CH17 extends Engine {
     this.ctx.textBaseline = 'middle';
     this.ctx.lineWidth = 3;
 
-    const baseY = h / 2 - 28;
+    const baseY = h / 2 - 28 - titleOffsetY; // Apply title offset
     const gap = 18;
     const orbitalWidth = this.ctx.measureText('Orbital').width;
     const driftWidth = this.ctx.measureText('Drift').width;
@@ -381,7 +385,7 @@ class CH17 extends Engine {
     const promptAlpha = 0.25 + 0.75 * easeInOutSine(pulse);
     this.ctx.fillStyle = `rgba(255,255,255,${promptAlpha.toFixed(3)})`;
     this.ctx.font = `18px ${this.fontFamily}`;
-    this.ctx.fillText('Press Fire to Start', w / 2, h / 2 + 28);
+    this.ctx.fillText('Press Fire to Start', w / 2, h / 2 + 28 + promptOffsetY); // Apply prompt offset
   }
 
 
@@ -668,27 +672,75 @@ class CH17 extends Engine {
         this.audio.playMusic('doomed', 0.5);
         this.menuPulseTime = 0;
         this.titleAnimTime = 0;
+        this.idleTimeInMenu = 0;
+        this.storyCrawl.reset();
         this.stopThrusterAudio();
         this.touchControls?.setVisible(false);
       },
       update: (dt) => {
         this.menuPulseTime += dt;
         this.titleAnimTime += dt;
+
         const confirmPressed = this.input.wasActionPressed('confirm');
         const firePressed = this.input.wasActionPressed('fire');
-        if (confirmPressed || firePressed) {
-          this.resetGame();
-          const bossActive = this.waveSystem.isBossActive;
-          void this.audio.resume().then(() => {
-            this.bossMusicActive = bossActive;
-            this.audio.playSound('start', 0.7);
-            this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
-          });
-          this.stateMachine.set('playing');
+        const anyInput = confirmPressed || firePressed ||
+                        this.input.wasActionPressed('left') ||
+                        this.input.wasActionPressed('right') ||
+                        this.input.wasActionPressed('up') ||
+                        this.input.wasActionPressed('down');
+
+        // Handle story crawl
+        if (this.storyCrawl.isRunning()) {
+          // Update the crawl
+          const stillActive = this.storyCrawl.update(dt);
+
+          // Exit crawl on any input
+          if (anyInput) {
+            this.storyCrawl.stop();
+            this.idleTimeInMenu = 0;
+          }
+
+          // Reset idle timer when crawl ends naturally
+          if (!stillActive) {
+            this.idleTimeInMenu = 0;
+          }
+        } else {
+          // Track idle time
+          if (anyInput) {
+            this.idleTimeInMenu = 0;
+          } else {
+            this.idleTimeInMenu += dt;
+          }
+
+          // Start crawl after idle threshold
+          if (this.idleTimeInMenu >= this.menuIdleThreshold) {
+            this.storyCrawl.start();
+            this.idleTimeInMenu = 0;
+          }
+
+          // Start game on confirm/fire
+          if (confirmPressed || firePressed) {
+            this.resetGame();
+            const bossActive = this.waveSystem.isBossActive;
+            void this.audio.resume().then(() => {
+              this.bossMusicActive = bossActive;
+              this.audio.playSound('start', 0.7);
+              this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+            });
+            this.stateMachine.set('playing');
+          }
         }
       },
       render: () => {
-        this.renderTitleScreen();
+        // Always render title screen with offsets
+        const titleOffset = this.storyCrawl.getTitleOffset();
+        const promptOffset = this.storyCrawl.getPromptOffset();
+        this.renderTitleScreen(titleOffset, promptOffset);
+
+        // Render crawl text on top if active
+        if (this.storyCrawl.isRunning()) {
+          this.storyCrawl.renderCrawlText(this.ctx, this.viewportSize.x, this.viewportSize.y);
+        }
       },
     };
 
@@ -1547,6 +1599,7 @@ class CH17 extends Engine {
     return best;
   }
 
+
   private resolveEnemyOverlaps(): void {
     // Skip if too few enemies to overlap
     if (this.enemies.length < 2) return;
@@ -1599,7 +1652,7 @@ class CH17 extends Engine {
   private spawnEnemyBullet(position: Vec2, angle: number): void {
     const sprite = this.projectileSprite;
     const rect = sprite
-      ? this.sprites.projectiles.enemy
+      ? this.sprites.projectiles.enemyAlt  // Using the second bottom sprite now!
       : undefined;
     this.addEntity(new EnemyBullet(position, angle, 260, sprite, rect, 20));
     this.events.emit('shot:enemy', { position, angle });

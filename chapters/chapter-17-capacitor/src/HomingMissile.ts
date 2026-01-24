@@ -9,6 +9,7 @@ export class HomingMissile extends Entity implements BoxCollider {
   colliderType: "box" = "box";
   layer: number = CollisionLayer.EnemyBullet;
   mask: number = CollisionLayer.Player | CollisionLayer.PlayerBullet;
+  renderLayer: number = 10; // Render behind ships
 
   private velocity: Vec2;
   private speed: number;

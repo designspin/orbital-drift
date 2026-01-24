@@ -8,6 +8,7 @@ export class EnemyBullet extends Entity implements CircleCollider {
   colliderType: "circle" = "circle";
   layer: number = CollisionLayer.EnemyBullet;
   mask: number = CollisionLayer.Player | CollisionLayer.Asteroid;
+  renderLayer: number = 10; // Render behind ships
   private velocity: Vec2;
   private sprite?: HTMLImageElement;
   private spriteRect?: { x: number; y: number; w: number; h: number };

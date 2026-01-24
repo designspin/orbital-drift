@@ -158,7 +158,7 @@ export class BackgroundRenderer {
     ctx.restore();
   }
 
-  renderNebulae(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, worldWidth: number, worldHeight: number): void {
+  renderNebulae(ctx: CanvasRenderingContext2D, _cameraX: number, _cameraY: number, _worldWidth: number, _worldHeight: number): void {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const nebula of this.nebulae) {

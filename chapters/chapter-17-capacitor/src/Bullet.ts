@@ -6,6 +6,7 @@ export class Bullet extends Entity implements CircleCollider {
   colliderType: "circle" = "circle";
   layer: number = CollisionLayer.PlayerBullet;
   mask: number = CollisionLayer.Enemy | CollisionLayer.Asteroid | CollisionLayer.EnemyBullet;
+  renderLayer: number = 10; // Render behind ships
   private velocity: Vec2;
 
   constructor(position: Vec2, angle: number, speed: number = 400) {

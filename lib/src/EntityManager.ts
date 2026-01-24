@@ -22,8 +22,24 @@ export class EntityManager {
   }
 
   render(ctx: CanvasRenderingContext2D): void {
+    // Group entities by render layer for efficient rendering
+    // Lower layer numbers render first (behind)
+    const layers: Map<number, iEntity[]> = new Map();
+
     for (const entity of this.entities) {
-      entity.render(ctx);
+      const layer = (entity as any).renderLayer ?? 50;
+      if (!layers.has(layer)) {
+        layers.set(layer, []);
+      }
+      layers.get(layer)!.push(entity);
+    }
+
+    // Sort layer numbers and render in order
+    const sortedLayers = Array.from(layers.keys()).sort((a, b) => a - b);
+    for (const layer of sortedLayers) {
+      for (const entity of layers.get(layer)!) {
+        entity.render(ctx);
+      }
     }
   }
 

@@ -12,7 +12,8 @@ export class SpriteRegistry {
   // Projectile sprite rectangles
   readonly projectiles = {
     player: { x: 122, y: 468, w: 121, h: 124 },
-    enemy: { x: 122, y: 653, w: 117, h: 132 },
+    enemy: { x: 122, y: 653, w: 117, h: 132 }, // Original enemy bullet
+    enemyAlt: { x: 317, y: 661, w: 122, h: 123 }, // Second bottom sprite (alternative enemy bullet)
   };
 
   // Missile sprite rectangles
