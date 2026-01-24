@@ -1,8 +1,8 @@
 import { Timer } from "./Timer";
 import { Input } from "./Input";
 import { EntityManager } from "./EntityManager";
-import { iEntity } from "./Entity";
-import { Vec2 } from "./types/vec2";
+import type { iEntity } from "./Entity";
+import type { Vec2 } from "./types/vec2";
 import { UILayer } from "./ui/UILayer";
 
 type EngineInitOptions = {

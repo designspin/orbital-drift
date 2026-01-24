@@ -7,6 +7,7 @@ export class AudioManager {
   private buffers = new Map<string, AudioBuffer>();
   private musicSource?: AudioBufferSourceNode;
   private musicGain?: GainNode;
+  private loopSources = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
 
   constructor() {
     this.ctx = new AudioContext();
@@ -78,5 +79,28 @@ export class AudioManager {
     if (this.musicGain) {
       this.musicGain.gain.value = volume;
     }
+  }
+
+  playLoop(key: string, volume: number = 0.5): void {
+    if (this.loopSources.has(key)) return;
+    const buffer = this.buffers.get(key);
+    if (!buffer) return;
+    const source = this.ctx.createBufferSource();
+    const gain = this.ctx.createGain();
+    source.buffer = buffer;
+    source.loop = true;
+    gain.gain.value = volume;
+    source.connect(gain).connect(this.ctx.destination);
+    source.start(0);
+    this.loopSources.set(key, { source, gain });
+  }
+
+  stopLoop(key: string): void {
+    const entry = this.loopSources.get(key);
+    if (!entry) return;
+    entry.source.stop();
+    entry.source.disconnect();
+    entry.gain.disconnect();
+    this.loopSources.delete(key);
   }
 }

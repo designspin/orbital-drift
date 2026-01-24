@@ -1,4 +1,4 @@
-import { Vec2 } from "./types/vec2";
+import type { Vec2 } from "./types/vec2";
 
 interface BaseCollider {
   position: Vec2;

@@ -1,0 +1,41 @@
+import type { Asteroid } from "../Asteroid";
+import type { System } from "@course/lib";
+
+export class ScoreSystem implements System {
+  private score = 0;
+  private getWave: () => number;
+
+  constructor(getWave: () => number) {
+    this.getWave = getWave;
+  }
+
+  reset(): void {
+    this.score = 0;
+  }
+
+  update(): void {}
+
+  getScore(): number {
+    return this.score;
+  }
+
+  onAsteroidDestroyed(asteroid: Asteroid): void {
+    this.score += asteroid.getScoreValue();
+  }
+
+  onEnemyDestroyed(): void {
+    this.score += 10 * this.getWave();
+  }
+
+  onMissileDestroyed(): void {
+    this.score += 6 * this.getWave();
+  }
+
+  onBossHit(): void {
+    this.score += 2 * this.getWave();
+  }
+
+  onBossDestroyed(): void {
+    this.score += 200 * this.getWave();
+  }
+}

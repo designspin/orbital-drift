@@ -1,6 +1,7 @@
 import { Input } from "./Input";
-import { UILayer, UIAnchor } from "./ui/UILayer";
-import { Vec2 } from "./types/vec2";
+import { UILayer } from "./ui/UILayer";
+import type { UIAnchor } from "./ui/UILayer";
+import type { Vec2 } from "./types/vec2";
 
 export type TouchStickConfig = {
   id: string;
@@ -73,6 +74,10 @@ export class TouchControls extends UILayer {
   private onPointerMove = (e: PointerEvent) => this.handlePointerMove(e);
   private onPointerUp = (e: PointerEvent) => this.handlePointerUp(e);
   private onPointerCancel = (e: PointerEvent) => this.handlePointerUp(e);
+  private onWindowBlur = () => this.resetState();
+  private onVisibilityChange = () => {
+    if (document.hidden) this.resetState();
+  };
 
   constructor(opts: TouchControlsOptions) {
     super("touch-controls");
@@ -126,6 +131,8 @@ export class TouchControls extends UILayer {
     this.canvas.removeEventListener("pointermove", this.onPointerMove);
     this.canvas.removeEventListener("pointerup", this.onPointerUp);
     this.canvas.removeEventListener("pointercancel", this.onPointerCancel);
+    window.removeEventListener("blur", this.onWindowBlur);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
   }
 
   private attach(): void {
@@ -133,6 +140,15 @@ export class TouchControls extends UILayer {
     this.canvas.addEventListener("pointermove", this.onPointerMove);
     this.canvas.addEventListener("pointerup", this.onPointerUp);
     this.canvas.addEventListener("pointercancel", this.onPointerCancel);
+    window.addEventListener("blur", this.onWindowBlur);
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+  }
+
+  override setVisible(visible: boolean): void {
+    super.setVisible(visible);
+    if (!visible) {
+      this.resetState();
+    }
   }
 
   override update(_deltaTime: number): void {
@@ -327,5 +343,22 @@ export class TouchControls extends UILayer {
     const dx = point.x - center.x;
     const dy = point.y - center.y;
     return dx * dx + dy * dy <= radius * radius;
+  }
+
+  private resetState(): void {
+    for (const button of this.buttons) {
+      if (button.pointerId !== null || button.pressed) {
+        button.pointerId = null;
+        button.pressed = false;
+        this.input.setActionState(button.config.action, false);
+      }
+    }
+    for (const stick of this.sticks) {
+      if (stick.pointerId !== null || stick.axis.x !== 0 || stick.axis.y !== 0) {
+        stick.pointerId = null;
+        stick.axis = { x: 0, y: 0 };
+        this.applyStickActions(stick);
+      }
+    }
   }
 }

@@ -1,6 +1,6 @@
-import { iEntity } from "./Entity";
-import { Vec2 } from "./types/vec2";
-import { Collidable, CircleCollider, BoxCollider } from "./Collision";
+import type { iEntity } from "./Entity";
+import type { Vec2 } from "./types/vec2";
+import type { Collidable, CircleCollider, BoxCollider } from "./Collision";
 
 export class EntityManager {
   private entities: iEntity[] = [];

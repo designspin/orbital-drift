@@ -1,4 +1,5 @@
-import { BaseUIElement, UIElementOptions } from "./UILayer";
+import { BaseUIElement } from "./UILayer";
+import type { UIElementOptions } from "./UILayer";
 
 export interface TextDisplayOptions extends UIElementOptions {
   getText: () => string;
