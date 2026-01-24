@@ -5,8 +5,7 @@ import { Player } from './Player';
 import { PlayerController } from './PlayerController';
 import { Asteroid, type AsteroidSize } from './Asteroid';
 import { Bullet } from './Bullet';
-import { Enemy } from './Enemy';
-import { Boss } from './Boss';
+import { Enemy, type EnemyBehavior } from './Enemy';
 import { BossV2, type BossConfig } from './BossV2';
 import { EnemyBullet } from './EnemyBullet';
 import { HomingMissile } from './HomingMissile';
@@ -36,25 +35,12 @@ class CH17 extends Engine {
   private effectsSystem!: EffectsSystem;
   private progress = 0;
   private shipSprite?: HTMLImageElement;
-  private shipSpriteRect = { x: 60, y: 146, w: 264, h: 262 };
   private enemySprite?: HTMLImageElement;
   private enemy2Sprite?: HTMLImageElement;
   private bossSprites: Array<HTMLImageElement | undefined> = [];
   private finalBossSprite?: HTMLImageElement;
   private projectileSprite?: HTMLImageElement;
   private asteroidSprite?: HTMLImageElement;
-  // Enemy sprite rectangles now in SpriteRegistry
-  private missileRects = [
-    { x: 142, y: 167, w: 76, h: 225 },
-    { x: 311, y: 169, w: 74, h: 223 },
-    { x: 473, y: 169, w: 78, h: 223 },
-    { x: 638, y: 169, w: 78, h: 222 },
-    { x: 805, y: 170, w: 79, h: 223 },
-  ];
-  private enemyProjectileRects = [
-    { x: 122, y: 653, w: 117, h: 132 },
-  ];
-  // Asteroid sprite rectangles now in SpriteRegistry
   private touchControls?: TouchControls;
 
   private lives = 3;
@@ -69,7 +55,9 @@ class CH17 extends Engine {
   private asteroids: Asteroid[] = [];
   private enemies: Enemy[] = [];
   private missiles: HomingMissile[] = [];
-  private boss?: Boss;
+  private boss?: BossV2;
+  private asteroidPositionsCache: Vec2[] = [];
+  private asteroidsCacheValid = false;
   private enemySpawnInterval = GAME_CONFIG.enemy.spawnInterval;
   private minEnemySpawnDistance = GAME_CONFIG.enemy.minSpawnDistance;
   private maxEnemyCap = GAME_CONFIG.enemy.maxCap;
@@ -228,6 +216,7 @@ class CH17 extends Engine {
       }
     }
     this.player.setShieldActive(this.shieldActive);
+    this.player.setShieldEnergy(this.shieldEnergy);
 
     if (!this.player.alive) {
       if (!this.playerDeathExploded) {
@@ -245,6 +234,7 @@ class CH17 extends Engine {
     }
 
     const spawned: Asteroid[] = [];
+    const prevCount = this.asteroids.length;
     this.asteroids = this.asteroids.filter((asteroid) => {
       if (!asteroid.alive) {
         spawned.push(...asteroid.split());
@@ -252,6 +242,9 @@ class CH17 extends Engine {
       }
       return true;
     });
+    if (this.asteroids.length !== prevCount) {
+      this.invalidateAsteroidCache();
+    }
 
     for (const child of spawned) {
       this.addAsteroid(child);
@@ -640,12 +633,12 @@ class CH17 extends Engine {
             this.enemy2Sprite = this.assets.getImage('enemy2');
             this.asteroidSprite = this.assets.getImage('asteroids');
             this.bossSprites = [
-              this.makeBgTransparent(this.assets.getImage('boss1'), 12),
-              this.makeBgTransparent(this.assets.getImage('boss2'), 12),
-              this.makeBgTransparent(this.assets.getImage('boss3'), 12),
-              this.makeBgTransparent(this.assets.getImage('boss4'), 12),
+              this.assets.getImage('boss1'),
+              this.assets.getImage('boss2'),
+              this.assets.getImage('boss3'),
+              this.assets.getImage('boss4'),
             ];
-            this.finalBossSprite = this.makeBgTransparent(this.assets.getImage('finalboss'), 12);
+            this.finalBossSprite = this.assets.getImage('finalboss');
             this.projectileSprite = this.assets.getImage('projectiles');
             this.audio.registerSound('doomed', this.assets.getSound('doomed'));
             this.audio.registerSound('flags', this.assets.getSound('flags'));
@@ -762,7 +755,7 @@ class CH17 extends Engine {
             spawn,
             new PlayerController(this.input),
             this.shipSprite,
-            this.shipSpriteRect,
+            this.sprites.player.shipLarge,
           );
           this.playerDeathExploded = false;
           this.player.setInvulnerable(3.0); // 3 seconds of invulnerability after respawn
@@ -946,6 +939,7 @@ class CH17 extends Engine {
     this.systems.update(deltaTime);
 
     const spawned: Asteroid[] = [];
+    const prevCount = this.asteroids.length;
     this.asteroids = this.asteroids.filter((asteroid) => {
       if (!asteroid.alive) {
         spawned.push(...asteroid.split());
@@ -953,6 +947,9 @@ class CH17 extends Engine {
       }
       return true;
     });
+    if (this.asteroids.length !== prevCount) {
+      this.invalidateAsteroidCache();
+    }
 
     for (const child of spawned) {
       this.addAsteroid(child);
@@ -977,6 +974,7 @@ class CH17 extends Engine {
     this.shieldRegenCooldown = 0;
     this.respawnTimer = 0;
     this.asteroids = [];
+    this.invalidateAsteroidCache();
     this.enemies = [];
     this.missiles = [];
     this.boss = undefined;
@@ -994,7 +992,7 @@ class CH17 extends Engine {
       spawn,
       new PlayerController(this.input),
       this.shipSprite,
-      this.shipSpriteRect,
+      this.sprites.player.shipLarge,
     );
     this.addEntity(this.player);
 
@@ -1011,60 +1009,12 @@ class CH17 extends Engine {
     }
   }
 
-  private makeBgTransparent(source: HTMLImageElement, threshold: number): HTMLImageElement {
-    const canvas = document.createElement('canvas');
-    canvas.width = source.width;
-    canvas.height = source.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return source;
-
-    ctx.drawImage(source, 0, 0);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    const getPixel = (x: number, y: number) => {
-      const idx = (y * canvas.width + x) * 4;
-      return [data[idx], data[idx + 1], data[idx + 2]] as const;
-    };
-
-    const corners = [
-      getPixel(0, 0),
-      getPixel(canvas.width - 1, 0),
-      getPixel(0, canvas.height - 1),
-      getPixel(canvas.width - 1, canvas.height - 1),
-    ];
-
-    const bg = corners.reduce(
-      (acc, c) => [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]] as [number, number, number],
-      [0, 0, 0]
-    );
-    const bgColor = [bg[0] / corners.length, bg[1] / corners.length, bg[2] / corners.length];
-    const t = Math.max(0, Math.min(255, threshold));
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      if (
-        Math.abs(r - bgColor[0]) <= t &&
-        Math.abs(g - bgColor[1]) <= t &&
-        Math.abs(b - bgColor[2]) <= t
-      ) {
-        data[i + 3] = 0;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    const img = new Image();
-    img.src = canvas.toDataURL('image/png');
-    return img;
-  }
 
   private addAsteroid(asteroid: Asteroid): void {
     this.waveSystem.registerWaveAsteroid();
     this.asteroids.push(asteroid);
     this.addEntity(asteroid);
+    this.invalidateAsteroidCache();
   }
 
   private addEnemy(enemy: Enemy): void {
@@ -1085,6 +1035,7 @@ class CH17 extends Engine {
         asteroid.alive = false;
       });
       this.asteroids = [];
+    this.invalidateAsteroidCache();
     }
 
     // Create boss configuration based on wave
@@ -1100,7 +1051,7 @@ class CH17 extends Engine {
         if (type === "missile") {
           this.spawnBossMissile(pos, angle);
         } else {
-          this.spawnEnemyBullet(pos, angle, 0);
+          this.spawnEnemyBullet(pos, angle);
         }
       },
       {
@@ -1108,22 +1059,7 @@ class CH17 extends Engine {
         getViewBounds: () => this.getCameraViewBounds(),
         onSpawnMinion: (pos) => {
           // Spawn a scout enemy as minion
-          const enemy = new Enemy(
-            pos,
-            () => this.player.position,
-            (pos, angle) => this.spawnEnemyBullet(pos, angle, 0),
-            this.enemySprite,
-            this.sprites.enemies.default,
-            (pos) => this.events.emit('enemy:destroyed', { position: pos }),
-            {
-              behavior: 'scout',
-              waveNumber: wave,
-              getViewBounds: () => this.getCameraViewBounds(160),
-              getAvoidTargets: () => this.asteroids.map((a) => a.position),
-              getTargetVelocity: () => this.player.getVelocity(),
-              getGroupTargets: (): Enemy[] => this.enemies,
-            },
-          );
+          const enemy = this.createEnemy(pos, 'scout', wave, this.enemySprite, this.sprites.enemies.default);
           this.addEnemy(enemy);
         },
         onHit: (pos, healthRatio) => {
@@ -1145,7 +1081,7 @@ class CH17 extends Engine {
       }
     );
 
-    this.boss = bossV2 as any; // Temporary cast to maintain compatibility
+    this.boss = bossV2;
     this.addEntity(bossV2);
   }
 
@@ -1380,6 +1316,44 @@ class CH17 extends Engine {
     }
   }
 
+  private getAsteroidPositions(): Vec2[] {
+    if (!this.asteroidsCacheValid) {
+      this.asteroidPositionsCache = this.asteroids.map((a) => a.position);
+      this.asteroidsCacheValid = true;
+    }
+    return this.asteroidPositionsCache;
+  }
+
+  private invalidateAsteroidCache(): void {
+    this.asteroidsCacheValid = false;
+  }
+
+  private createEnemy(
+    position: Vec2,
+    behavior: EnemyBehavior,
+    waveNumber: number,
+    sprite?: HTMLImageElement,
+    spriteRect?: { x: number; y: number; w: number; h: number }
+  ): Enemy {
+    const enemy = new Enemy(
+      position,
+      () => this.player.position,
+      (pos, angle) => this.spawnEnemyBullet(pos, angle),
+      sprite || this.enemySprite,
+      spriteRect || this.sprites.enemies.default,
+      (pos) => this.events.emit('enemy:destroyed', { position: pos }),
+      {
+        behavior,
+        waveNumber,
+        getViewBounds: () => this.getCameraViewBounds(160),
+        getAvoidTargets: () => this.getAsteroidPositions(),
+        getTargetVelocity: () => this.player.getVelocity(),
+        getGroupTargets: (): Enemy[] => this.enemies.filter((e: Enemy) => e !== enemy),
+      },
+    );
+    return enemy;
+  }
+
   private spawnEnemyAtRandom(): void {
     const wave = this.waveSystem?.currentWave ?? 1;
     const enemyTypes = this.getEnemyTypesForWave(wave);
@@ -1401,22 +1375,7 @@ class CH17 extends Engine {
     const x = spawn.x;
     const y = spawn.y;
 
-    const enemy: Enemy = new Enemy(
-      { x, y },
-      () => this.player.position,
-      (pos, angle) => this.spawnEnemyBullet(pos, angle, 0),
-      type.sprite,
-      type.spriteRect,
-      (pos) => this.events.emit('enemy:destroyed', { position: pos }),
-      {
-        behavior: type.behavior,
-        waveNumber: wave,
-        getViewBounds: () => this.getCameraViewBounds(160),
-        getAvoidTargets: () => this.asteroids.map((a) => a.position),
-        getTargetVelocity: () => this.player.getVelocity(),
-        getGroupTargets: (): Enemy[] => this.enemies.filter((e: Enemy) => e !== enemy),
-      },
-    );
+    const enemy = this.createEnemy({ x, y }, type.behavior as EnemyBehavior, wave, type.sprite, type.spriteRect);
     this.addEnemy(enemy);
 
     // Enemy spawn effect is handled in Enemy class with scale/fade animation
@@ -1432,22 +1391,7 @@ class CH17 extends Engine {
       const x = spawn.x + Math.cos(angle) * radius;
       const y = spawn.y + Math.sin(angle) * radius;
 
-      const enemy: Enemy = new Enemy(
-        { x, y },
-        () => this.player.position,
-        (pos, angle) => this.spawnEnemyBullet(pos, angle, 0),
-        this.enemy2Sprite,
-        this.sprites.enemies2.type3,
-        (pos) => this.events.emit('enemy:destroyed', { position: pos }),
-        {
-          behavior: 'swarm',
-          waveNumber: wave,
-          getViewBounds: () => this.getCameraViewBounds(160),
-          getAvoidTargets: () => this.asteroids.map((a) => a.position),
-          getTargetVelocity: () => this.player.getVelocity(),
-          getGroupTargets: (): Enemy[] => this.enemies,
-        },
-      );
+      const enemy = this.createEnemy({ x, y }, 'swarm', wave, this.enemy2Sprite, this.sprites.enemies2.type3);
       this.addEnemy(enemy);
     }
   }
@@ -1604,18 +1548,39 @@ class CH17 extends Engine {
   }
 
   private resolveEnemyOverlaps(): void {
-    for (let i = 0; i < this.enemies.length; i++) {
-      for (let j = i + 1; j < this.enemies.length; j++) {
-        const a = this.enemies[i];
-        const b = this.enemies[j];
+    // Skip if too few enemies to overlap
+    if (this.enemies.length < 2) return;
+
+    // Only check enemies near the camera view for performance
+    const viewBounds = this.getCameraViewBounds(100);
+    const nearbyEnemies = this.enemies.filter(e =>
+      e.position.x >= viewBounds.x - 50 &&
+      e.position.x <= viewBounds.x + viewBounds.w + 50 &&
+      e.position.y >= viewBounds.y - 50 &&
+      e.position.y <= viewBounds.y + viewBounds.h + 50
+    );
+
+    // If too many enemies offscreen, skip their collision checks
+    if (nearbyEnemies.length < 2) return;
+
+    for (let i = 0; i < nearbyEnemies.length; i++) {
+      for (let j = i + 1; j < nearbyEnemies.length; j++) {
+        const a = nearbyEnemies[i];
+        const b = nearbyEnemies[j];
+
+        // Quick distance check before expensive calculation
         const dx = b.position.x - a.position.x;
         const dy = b.position.y - a.position.y;
+
+        // Early exit if clearly too far apart
+        const maxDist = a.radius + b.radius + 4;
+        if (Math.abs(dx) > maxDist || Math.abs(dy) > maxDist) continue;
+
         const dist = Math.hypot(dx, dy) || 1;
-        const minDist = a.radius + b.radius + 4;
-        if (dist < minDist) {
+        if (dist < maxDist) {
           const nx = dx / dist;
           const ny = dy / dist;
-          const push = (minDist - dist) / 2;
+          const push = (maxDist - dist) / 2;
           a.position.x -= nx * push;
           a.position.y -= ny * push;
           b.position.x += nx * push;
@@ -1631,10 +1596,10 @@ class CH17 extends Engine {
   }
 
 
-  private spawnEnemyBullet(position: Vec2, angle: number, projectileIndex: number = 0): void {
+  private spawnEnemyBullet(position: Vec2, angle: number): void {
     const sprite = this.projectileSprite;
     const rect = sprite
-      ? this.enemyProjectileRects[projectileIndex % this.enemyProjectileRects.length]
+      ? this.sprites.projectiles.enemy
       : undefined;
     this.addEntity(new EnemyBullet(position, angle, 260, sprite, rect, 20));
     this.events.emit('shot:enemy', { position, angle });
@@ -1643,7 +1608,7 @@ class CH17 extends Engine {
   private spawnBossMissile(position: Vec2, angle: number): void {
     const sprite = this.projectileSprite;
     const rect = sprite
-      ? this.missileRects[Math.floor(random() * this.missileRects.length)]
+      ? this.sprites.missiles[Math.floor(random() * this.sprites.missiles.length)]
       : undefined;
     const missile = new HomingMissile(
       position,

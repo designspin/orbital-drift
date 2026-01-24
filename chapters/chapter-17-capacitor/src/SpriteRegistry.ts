@@ -6,6 +6,7 @@ export class SpriteRegistry {
   // Player sprite rectangles
   readonly player = {
     ship: { x: 38, y: 464, w: 63, h: 57 },
+    shipLarge: { x: 60, y: 146, w: 264, h: 262 }, // Large ship sprite for title screen
   };
 
   // Projectile sprite rectangles
@@ -13,6 +14,15 @@ export class SpriteRegistry {
     player: { x: 122, y: 468, w: 121, h: 124 },
     enemy: { x: 122, y: 653, w: 117, h: 132 },
   };
+
+  // Missile sprite rectangles
+  readonly missiles = [
+    { x: 142, y: 167, w: 76, h: 225 },
+    { x: 311, y: 169, w: 74, h: 223 },
+    { x: 473, y: 169, w: 78, h: 223 },
+    { x: 638, y: 169, w: 78, h: 222 },
+    { x: 805, y: 170, w: 79, h: 223 },
+  ];
 
   // Enemy sprite rectangles (enemy.png)
   readonly enemies = {

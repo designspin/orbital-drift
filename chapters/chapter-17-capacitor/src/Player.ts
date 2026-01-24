@@ -3,6 +3,7 @@ import { PlayerController } from "./PlayerController";
 import { Asteroid } from "./Asteroid";
 import { Enemy } from "./Enemy";
 import { CollisionLayer } from "./collisionLayers";
+import { ShieldRenderer } from "./ShieldRenderer";
 
 export class Player extends Entity implements CircleCollider {
   radius: number = 15;
@@ -17,6 +18,8 @@ export class Player extends Entity implements CircleCollider {
   private sprite?: HTMLImageElement;
   private spriteRect?: { x: number; y: number; w: number; h: number };
   private shieldActive: boolean = false;
+  private shieldEnergy: number = 1;
+  private shieldRenderer: ShieldRenderer = new ShieldRenderer();
   private invulnerableTimer: number = 0;
   private invulnerableDuration: number = 3.0; // 3 seconds of invulnerability after spawn
   private flashTimer: number = 0; // For flashing effect during invulnerability
@@ -41,6 +44,10 @@ export class Player extends Entity implements CircleCollider {
     this.shieldActive = active;
   }
 
+  setShieldEnergy(energy: number): void {
+    this.shieldEnergy = Math.max(0, Math.min(1, energy));
+  }
+
   setInvulnerable(duration: number): void {
     this.invulnerableTimer = duration;
   }
@@ -58,6 +65,9 @@ export class Player extends Entity implements CircleCollider {
   }
 
   update(deltaTime: number, screenSize: Vec2): void {
+    // Update shield renderer
+    this.shieldRenderer.update(deltaTime);
+
     // Update invulnerability timer
     if (this.invulnerableTimer > 0) {
       this.invulnerableTimer = Math.max(0, this.invulnerableTimer - deltaTime);
@@ -124,15 +134,8 @@ export class Player extends Entity implements CircleCollider {
 
     ctx.save();
     ctx.translate(this.position.x, this.position.y);
-    if (this.shieldActive) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius * 1.7, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(90, 200, 250, 0.9)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.restore();
-    }
+    // Render shield with advanced effects
+    this.shieldRenderer.render(ctx, this.radius, this.shieldEnergy, this.shieldActive);
     ctx.rotate((this.angle * Math.PI) / 180);
     if (this.sprite) {
       ctx.rotate(Math.PI / 2);
@@ -187,11 +190,13 @@ export class Player extends Entity implements CircleCollider {
 
   onCollision(_: Collidable): void {
     if (this.shieldActive && _ instanceof Enemy) {
+      this.shieldRenderer.triggerHit();
       _.destroy();
       return;
     }
 
     if (this.shieldActive && _ instanceof Asteroid) {
+      this.shieldRenderer.triggerHit();
       const dx = _.position.x - this.position.x;
       const dy = _.position.y - this.position.y;
       const dist = Math.hypot(dx, dy) || 1;
@@ -205,6 +210,7 @@ export class Player extends Entity implements CircleCollider {
     }
 
     if (this.shieldActive) {
+      this.shieldRenderer.triggerHit();
       return;
     }
 
