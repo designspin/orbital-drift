@@ -15,5 +15,8 @@
     "@capacitor/ios": "^8.0.1",
     "typescript": "~5.9.3",
     "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "@capacitor/preferences": "^8.0.0"
   }
 }

@@ -187,6 +187,9 @@ export class Player extends Entity implements CircleCollider {
   }
 
   onCollision(_: Collidable): void {
+    if (this.invulnerableTimer > 0) {
+      return;
+    }
     if (this.shieldActive && _ instanceof Enemy) {
       this.shieldRenderer.triggerHit();
       _.destroy();

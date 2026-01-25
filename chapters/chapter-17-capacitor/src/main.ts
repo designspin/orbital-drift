@@ -1,5 +1,6 @@
 import './style.css'
-import { AssetManager, AudioManager, Camera, Engine, EventBus, ParticleSystem, StateMachine, SystemManager, TouchControls, easeInOutSine } from '@course/lib';
+import { AssetManager, AudioManager, Camera, Engine, EventBus, ParticleSystem, StateMachine, SystemManager, easeInOutSine } from '@course/lib';
+import { Preferences } from '@capacitor/preferences';
 import type { GameState, Vec2 } from '@course/lib';
 import { Player } from './Player';
 import { PlayerController } from './PlayerController';
@@ -20,6 +21,7 @@ import { SpriteFlashCache } from './SpriteFlashCache';
 import { SpriteRegistry } from './SpriteRegistry';
 import { BackgroundRenderer } from './BackgroundRenderer';
 import { ShipShowcase } from './ShipShowcase';
+import { DynamicTouchControls } from './DynamicTouchControls';
 
 class CH17 extends Engine {
   private assets = new AssetManager();
@@ -42,7 +44,9 @@ class CH17 extends Engine {
   private finalBossSprite?: HTMLImageElement;
   private projectileSprite?: HTMLImageElement;
   private asteroidSprite?: HTMLImageElement;
-  private touchControls?: TouchControls;
+  private gearIcon?: HTMLImageElement;
+  private closeIcon?: HTMLImageElement;
+  private touchControls?: DynamicTouchControls;
 
   private lives = 3;
   private shieldEnergy = 1;
@@ -92,10 +96,26 @@ class CH17 extends Engine {
   private thrusterLoopActive = false;
   private waveOverlayTime = 0;
   private bossMusicActive = false;
-  private onPointerDown = () => this.input.setActionState('confirm', true);
-  private onPointerUp = () => this.input.setActionState('confirm', false);
-  private onTouchStart = () => this.input.setActionState('confirm', true);
-  private onTouchEnd = () => this.input.setActionState('confirm', false);
+  private settingsOpen = false;
+  private settingsPointerId: number | null = null;
+  private settingsDragging: 'music' | 'sfx' | null = null;
+  private musicVolume = 0.5;
+  private sfxVolume = 1;
+  private touchHandedness: 'right' | 'left' = 'right';
+  private touchFireSide: 'right' | 'left' = 'right';
+  private touchLeftRegionRatio = 0.52;
+  private touchHintActive = false;
+  private touchHintTimer = 0;
+  private touchHintDuration = 5;
+  private touchHintShown = false;
+  private touchHintSignature = '';
+  private settingsStorageKey = 'od-settings';
+  private settingsSuppressStart = 0;
+  private onPointerDown: (e: PointerEvent) => void = () => this.input.setActionState('confirm', true);
+  private onPointerMove: (e: PointerEvent) => void = (_e) => {};
+  private onPointerUp: (e: PointerEvent) => void = () => this.input.setActionState('confirm', false);
+  private onTouchStart: (e: TouchEvent) => void = () => this.input.setActionState('confirm', true);
+  private onTouchEnd: (e: TouchEvent) => void = () => this.input.setActionState('confirm', false);
 
   protected override get screenSize(): Vec2 {
     return this.worldSize;
@@ -125,6 +145,9 @@ class CH17 extends Engine {
     }
     this.setupActions();
     this.setupTapToStart();
+    void this.loadPreferences();
+    this.audio.setMusicVolume(this.musicVolume);
+    this.audio.setSfxVolume(this.sfxVolume);
     this.setUiUpdateInterval(100);
     this.setupSystems();
     this.setupEvents();
@@ -145,18 +168,26 @@ class CH17 extends Engine {
 
   private setupTapToStart(): void {
     this.ctx.canvas.style.touchAction = 'none';
-    this.ctx.canvas.addEventListener('pointerdown', this.onPointerDown, { passive: true });
+    this.onPointerDown = (e: PointerEvent) => this.handlePointerDown(e);
+    this.onPointerMove = (e: PointerEvent) => this.handlePointerMove(e);
+    this.onPointerUp = (e: PointerEvent) => this.handlePointerUp(e);
+    this.onTouchStart = (e: TouchEvent) => this.handleTouchStart(e);
+    this.onTouchEnd = (e: TouchEvent) => this.handleTouchEnd(e);
+
+    this.ctx.canvas.addEventListener('pointerdown', this.onPointerDown, { passive: false });
+    this.ctx.canvas.addEventListener('pointermove', this.onPointerMove, { passive: false });
     this.ctx.canvas.addEventListener('pointerup', this.onPointerUp, { passive: true });
     this.ctx.canvas.addEventListener('pointercancel', this.onPointerUp, { passive: true });
     this.ctx.canvas.addEventListener('pointerout', this.onPointerUp, { passive: true });
     this.ctx.canvas.addEventListener('pointerleave', this.onPointerUp, { passive: true });
-    this.ctx.canvas.addEventListener('touchstart', this.onTouchStart, { passive: true });
+    this.ctx.canvas.addEventListener('touchstart', this.onTouchStart, { passive: false });
     this.ctx.canvas.addEventListener('touchend', this.onTouchEnd, { passive: true });
     this.ctx.canvas.addEventListener('touchcancel', this.onTouchEnd, { passive: true });
-    window.addEventListener('pointerdown', this.onPointerDown, { passive: true });
+    window.addEventListener('pointerdown', this.onPointerDown, { passive: false });
+    window.addEventListener('pointermove', this.onPointerMove, { passive: false });
     window.addEventListener('pointerup', this.onPointerUp, { passive: true });
     window.addEventListener('pointercancel', this.onPointerUp, { passive: true });
-    window.addEventListener('touchstart', this.onTouchStart, { passive: true });
+    window.addEventListener('touchstart', this.onTouchStart, { passive: false });
     window.addEventListener('touchend', this.onTouchEnd, { passive: true });
     window.addEventListener('touchcancel', this.onTouchEnd, { passive: true });
   }
@@ -170,12 +201,19 @@ class CH17 extends Engine {
   }
 
   public updatePlaying(deltaTime: number): void {
+    if (this.touchHintActive) {
+      this.touchHintTimer = Math.max(0, this.touchHintTimer - deltaTime);
+      if (this.touchHintTimer === 0) {
+        this.touchHintActive = false;
+      }
+    }
+
     this.backgroundRenderer.updateBackgroundTime(deltaTime);
     this.updateThemeBlend(deltaTime);
     const bossActive = this.waveSystem.isBossActive;
     if (bossActive !== this.bossMusicActive) {
       this.bossMusicActive = bossActive;
-      this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+      this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.musicVolume);
     }
     this.shieldActive = this.input.isActionDown('shield') && this.shieldEnergy > 0;
     const thrusting = this.player.isThrusting();
@@ -211,6 +249,10 @@ class CH17 extends Engine {
       this.shieldEnergy = Math.max(0, this.shieldEnergy - this.shieldDrainRate * deltaTime);
       if (this.shieldEnergy === 0) {
         this.shieldRegenCooldown = this.shieldRegenDelay;
+        if (this.input.isActionDown('shield')) {
+          this.input.setActionState('shield', false);
+          this.touchControls?.forceShieldOff();
+        }
       }
     } else {
       if (this.shieldRegenCooldown > 0) {
@@ -303,6 +345,10 @@ class CH17 extends Engine {
         this.waveOverlayTime,
         GAME_CONFIG.waves.transitionDuration
       );
+    }
+
+    if (this.touchHintActive) {
+      this.renderTouchControlsOverlay();
     }
   }
 
@@ -631,6 +677,8 @@ class CH17 extends Engine {
         this.assets.queueImage('boss4', '/boss4.png');
         this.assets.queueImage('finalboss', '/finalboss.png');
         this.assets.queueImage('projectiles', '/projectiles.png');
+        this.assets.queueImage('gear', '/gear.png');
+        this.assets.queueImage('cross', '/cross.png');
         void this.assets
           .loadAll((p) => {
             this.progress = p.percent;
@@ -648,6 +696,8 @@ class CH17 extends Engine {
             ];
             this.finalBossSprite = this.assets.getImage('finalboss');
             this.projectileSprite = this.assets.getImage('projectiles');
+            this.gearIcon = this.assets.getImage('gear');
+            this.closeIcon = this.assets.getImage('cross');
             this.audio.registerSound('doomed', this.assets.getSound('doomed'));
             this.audio.registerSound('flags', this.assets.getSound('flags'));
             this.audio.registerSound('lazerShoot', this.assets.getSound('lazerShoot'));
@@ -673,17 +723,26 @@ class CH17 extends Engine {
       enter: () => {
         this.hudSystem.setHudVisible(false);
         this.hudSystem.setPauseVisible(false);
-        this.audio.playMusic('doomed', 0.5);
+        this.audio.playMusic('doomed', this.musicVolume);
         this.menuPulseTime = 0;
         this.titleAnimTime = 0;
         this.idleTimeInMenu = 0;
         this.shipShowcase.reset();
+        this.settingsOpen = false;
         this.stopThrusterAudio();
         this.touchControls?.setVisible(false);
       },
       update: (dt) => {
         this.menuPulseTime += dt;
         this.titleAnimTime += dt;
+
+        if (this.settingsSuppressStart > 0) {
+          this.settingsSuppressStart = Math.max(0, this.settingsSuppressStart - dt);
+        }
+
+        if (this.settingsOpen) {
+          return;
+        }
 
         const confirmPressed = this.input.wasActionPressed('confirm');
         const firePressed = this.input.wasActionPressed('fire');
@@ -694,13 +753,13 @@ class CH17 extends Engine {
                         this.input.wasActionPressed('down');
 
         // Start game on confirm/fire
-        if (confirmPressed || firePressed) {
+        if ((confirmPressed || firePressed) && this.settingsSuppressStart <= 0) {
           this.resetGame();
           const bossActive = this.waveSystem.isBossActive;
           void this.audio.resume().then(() => {
             this.bossMusicActive = bossActive;
             this.audio.playSound('start', 0.7);
-            this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+            this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.musicVolume);
           });
           this.stateMachine.set('playing');
           return;
@@ -754,6 +813,11 @@ class CH17 extends Engine {
         const titleOffset = this.shipShowcase.getTitleOffset();
         const promptOffset = this.shipShowcase.getPromptOffset();
         this.renderTitleText(titleOffset, promptOffset);
+
+        this.renderSettingsIcon();
+        if (this.settingsOpen) {
+          this.renderSettingsPanel();
+        }
       },
     };
 
@@ -764,8 +828,14 @@ class CH17 extends Engine {
         this.hudSystem.setPauseVisible(false);
         const bossActive = this.waveSystem.isBossActive;
         this.bossMusicActive = bossActive;
-        this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+        this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.musicVolume);
         this.touchControls?.setVisible(true);
+        if (this.isTouchDevice() && !this.touchHintShown && this.waveSystem.currentWave === 1) {
+          this.touchHintActive = true;
+          this.touchHintTimer = this.touchHintDuration;
+          this.touchHintShown = true;
+          void this.savePreferences();
+        }
       },
       update: (dt) => {
         if (this.input.wasActionPressed('pause')) {
@@ -914,6 +984,489 @@ class CH17 extends Engine {
     });
   }
 
+  private handlePointerDown(event: PointerEvent): void {
+    if (this.handleSettingsPointerDown(event)) {
+      return;
+    }
+    this.input.setActionState('confirm', true);
+  }
+
+  private handlePointerMove(event: PointerEvent): void {
+    this.handleSettingsPointerMove(event);
+  }
+
+  private handlePointerUp(event: PointerEvent): void {
+    if (this.handleSettingsPointerUp(event)) {
+      return;
+    }
+    this.input.setActionState('confirm', false);
+  }
+
+  private handleTouchStart(event: TouchEvent): void {
+    if (this.handleSettingsTouch(event)) {
+      return;
+    }
+    this.input.setActionState('confirm', true);
+  }
+
+  private handleTouchEnd(event: TouchEvent): void {
+    if (this.handleSettingsTouch(event)) {
+      return;
+    }
+    this.input.setActionState('confirm', false);
+  }
+
+  private handleSettingsTouch(event: TouchEvent): boolean {
+    if (this.stateMachine.currentState?.name !== 'menu') return false;
+    if (!this.settingsOpen) return false;
+    event.preventDefault();
+    return true;
+  }
+
+  private handleSettingsPointerDown(event: PointerEvent): boolean {
+    if (this.stateMachine.currentState?.name !== 'menu') return false;
+
+    const point = this.screenToWorld({ x: event.clientX, y: event.clientY });
+    const layout = this.getSettingsLayout();
+
+    if (!this.settingsOpen) {
+      if (this.isWithin(point, layout.cog)) {
+        this.settingsOpen = true;
+        this.settingsSuppressStart = 0.25;
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    }
+
+    if (this.isWithin(point, layout.close)) {
+      this.settingsOpen = false;
+      this.settingsDragging = null;
+      this.settingsPointerId = null;
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isWithin(point, layout.music)) {
+      this.settingsDragging = 'music';
+      this.settingsPointerId = event.pointerId;
+      this.updateVolumeFromPoint(point, layout.music, 'music');
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isWithin(point, layout.sfx)) {
+      this.settingsDragging = 'sfx';
+      this.settingsPointerId = event.pointerId;
+      this.updateVolumeFromPoint(point, layout.sfx, 'sfx');
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isTouchDevice() && this.isWithin(point, layout.handLeft)) {
+      this.touchHandedness = 'left';
+      this.applyTouchControlsOptions();
+      void this.savePreferences();
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isTouchDevice() && this.isWithin(point, layout.handRight)) {
+      this.touchHandedness = 'right';
+      this.applyTouchControlsOptions();
+      void this.savePreferences();
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isTouchDevice() && this.isWithin(point, layout.fireLeft)) {
+      this.touchFireSide = 'left';
+      this.applyTouchControlsOptions();
+      void this.savePreferences();
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isTouchDevice() && this.isWithin(point, layout.fireRight)) {
+      this.touchFireSide = 'right';
+      this.applyTouchControlsOptions();
+      void this.savePreferences();
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+
+    if (this.isWithin(point, layout.panel)) {
+      event.preventDefault();
+      return true;
+    }
+
+    return false;
+  }
+
+  private handleSettingsPointerMove(event: PointerEvent): void {
+    if (!this.settingsOpen || !this.settingsDragging) return;
+    if (this.settingsPointerId !== event.pointerId) return;
+    const point = this.screenToWorld({ x: event.clientX, y: event.clientY });
+    const layout = this.getSettingsLayout();
+    if (this.settingsDragging === 'music') {
+      this.updateVolumeFromPoint(point, layout.music, 'music');
+      event.preventDefault();
+      return;
+    }
+    if (this.settingsDragging === 'sfx') {
+      this.updateVolumeFromPoint(point, layout.sfx, 'sfx');
+      event.preventDefault();
+    }
+  }
+
+  private handleSettingsPointerUp(event: PointerEvent): boolean {
+    if (!this.settingsOpen) return false;
+    if (this.settingsPointerId === event.pointerId) {
+      this.settingsPointerId = null;
+      this.settingsDragging = null;
+      this.settingsSuppressStart = 0.25;
+      event.preventDefault();
+      return true;
+    }
+    return false;
+  }
+
+  private updateVolumeFromPoint(point: Vec2, rect: { x: number; y: number; w: number; h: number }, kind: 'music' | 'sfx'): void {
+    const t = Math.max(0, Math.min(1, (point.x - rect.x) / rect.w));
+    if (kind === 'music') {
+      this.musicVolume = t;
+      this.audio.setMusicVolume(this.musicVolume);
+    } else {
+      this.sfxVolume = t;
+      this.audio.setSfxVolume(this.sfxVolume);
+    }
+    void this.savePreferences();
+  }
+
+  private renderSettingsIcon(): void {
+    const layout = this.getSettingsLayout();
+    const buttonX = layout.cog.x;
+    const buttonY = layout.cog.y;
+    const buttonSize = layout.cog.w;
+    const iconX = layout.cogIcon.x;
+    const iconY = layout.cogIcon.y;
+    const size = layout.cogIcon.w;
+
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    this.drawRoundedRect(this.ctx, buttonX, buttonY, buttonSize, buttonSize, 8);
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    this.ctx.restore();
+
+    if (this.gearIcon) {
+      this.ctx.save();
+      this.ctx.globalAlpha = 0.9;
+      this.ctx.drawImage(this.gearIcon, iconX, iconY, size, size);
+      this.ctx.restore();
+      return;
+    }
+
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    this.ctx.lineWidth = 2;
+    this.ctx.beginPath();
+    this.ctx.arc(iconX + size / 2, iconY + size / 2, size / 2 - 4, 0, Math.PI * 2);
+    this.ctx.stroke();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (i / 6) * Math.PI * 2;
+      const r1 = size / 2 - 2;
+      const r2 = size / 2 + 4;
+      const cx = iconX + size / 2;
+      const cy = iconY + size / 2;
+      this.ctx.beginPath();
+      this.ctx.moveTo(cx + Math.cos(angle) * r1, cy + Math.sin(angle) * r1);
+      this.ctx.lineTo(cx + Math.cos(angle) * r2, cy + Math.sin(angle) * r2);
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+
+  private renderSettingsPanel(): void {
+    const layout = this.getSettingsLayout();
+    const { panel, music, sfx, close, closeIcon, handLeft, handRight, fireLeft, fireRight } = layout;
+
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    this.ctx.fillRect(0, 0, this.viewportSize.x, this.viewportSize.y);
+
+    this.ctx.fillStyle = 'rgba(10,10,10,0.85)';
+    this.drawRoundedRect(this.ctx, panel.x, panel.y, panel.w, panel.h, 16);
+    this.ctx.fill();
+
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = `22px ${this.fontFamily}`;
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('Settings', panel.x + 20, panel.y + 28);
+
+    this.ctx.font = `16px ${this.fontFamily}`;
+    this.ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    this.ctx.fillText('Music', music.x, music.y - 16);
+    this.ctx.fillText('SFX', sfx.x, sfx.y - 16);
+
+    this.renderSlider(music, this.musicVolume);
+    this.renderSlider(sfx, this.sfxVolume);
+
+    if (this.isTouchDevice()) {
+      this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      this.ctx.font = `15px ${this.fontFamily}`;
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('Controls', panel.x + 20, handLeft.y + handLeft.h / 2);
+      this.ctx.fillText('Tap Fire', panel.x + 20, fireLeft.y + fireLeft.h / 2);
+
+      this.renderOptionButton(handLeft, 'Left', this.touchHandedness === 'left');
+      this.renderOptionButton(handRight, 'Right', this.touchHandedness === 'right');
+      this.renderOptionButton(fireLeft, 'Left', this.touchFireSide === 'left');
+      this.renderOptionButton(fireRight, 'Right', this.touchFireSide === 'right');
+    }
+
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    this.drawRoundedRect(this.ctx, close.x, close.y, close.w, close.h, 6);
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    this.ctx.restore();
+
+    if (this.closeIcon) {
+      const iconSize = closeIcon.w;
+      const iconX = closeIcon.x;
+      const iconY = closeIcon.y;
+      this.ctx.save();
+      this.ctx.globalAlpha = 0.9;
+      this.ctx.drawImage(this.closeIcon, iconX, iconY, iconSize, iconSize);
+      this.ctx.restore();
+    } else {
+      this.ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      this.ctx.font = `14px ${this.fontFamily}`;
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText('X', close.x + close.w / 2, close.y + close.h / 2 + 1);
+    }
+
+    this.ctx.restore();
+  }
+
+  private renderSlider(rect: { x: number; y: number; w: number; h: number }, value: number): void {
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    this.ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    this.ctx.fillStyle = 'rgba(120,196,255,0.9)';
+    this.ctx.fillRect(rect.x, rect.y, rect.w * value, rect.h);
+
+    const knobX = rect.x + rect.w * value;
+    const knobY = rect.y + rect.h / 2;
+    this.ctx.beginPath();
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.arc(knobX, knobY, rect.h * 1.25, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  private renderOptionButton(rect: { x: number; y: number; w: number; h: number }, label: string, active: boolean): void {
+    this.ctx.save();
+    this.ctx.fillStyle = active ? 'rgba(120,196,255,0.9)' : 'rgba(255,255,255,0.12)';
+    this.drawRoundedRect(this.ctx, rect.x, rect.y, rect.w, rect.h, 6);
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    this.ctx.fillStyle = active ? '#0b0b0b' : 'rgba(255,255,255,0.85)';
+    this.ctx.font = `14px ${this.fontFamily}`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    this.ctx.restore();
+  }
+
+  private getSettingsLayout(): {
+    panel: { x: number; y: number; w: number; h: number };
+    music: { x: number; y: number; w: number; h: number };
+    sfx: { x: number; y: number; w: number; h: number };
+    close: { x: number; y: number; w: number; h: number };
+    closeIcon: { x: number; y: number; w: number; h: number };
+    handLeft: { x: number; y: number; w: number; h: number };
+    handRight: { x: number; y: number; w: number; h: number };
+    fireLeft: { x: number; y: number; w: number; h: number };
+    fireRight: { x: number; y: number; w: number; h: number };
+    cog: { x: number; y: number; w: number; h: number };
+    cogIcon: { x: number; y: number; w: number; h: number };
+  } {
+    const { x: w, y: h } = this.viewportSize;
+    const panelW = 360;
+    const panelH = 300;
+    const panelX = (w - panelW) / 2;
+    const panelY = (h - panelH) / 2;
+    const sliderW = 240;
+    const sliderH = 6;
+    const sliderX = panelX + 60;
+    const musicY = panelY + 90;
+    const sfxY = panelY + 150;
+    const optionButtonW = 110;
+    const optionButtonH = 28;
+    const optionGap = 10;
+    const optionRight = panelX + panelW - 20;
+    const optionLeft = optionRight - optionButtonW * 2 - optionGap;
+    const handedY = panelY + 205 - optionButtonH / 2;
+    const fireY = panelY + 245 - optionButtonH / 2;
+    const closeIconSize = 20;
+    const closeButtonPadding = 8;
+    const closeIconX = panelX + panelW - closeIconSize - 12 - closeButtonPadding;
+    const closeIconY = panelY + 12 + closeButtonPadding;
+    const closeX = closeIconX - closeButtonPadding;
+    const closeY = closeIconY - closeButtonPadding;
+    const closeButtonSize = closeIconSize + closeButtonPadding * 2;
+    const cogSize = 30;
+    const cogPadX = 26;
+    const cogPadY = 24;
+    const cogButtonPadding = 8;
+    const cogIconX = w - cogSize - cogPadX;
+    const cogIconY = cogPadY;
+    const cogX = cogIconX - cogButtonPadding;
+    const cogY = cogIconY - cogButtonPadding;
+    const cogButtonSize = cogSize + cogButtonPadding * 2;
+
+    return {
+      panel: { x: panelX, y: panelY, w: panelW, h: panelH },
+      music: { x: sliderX, y: musicY, w: sliderW, h: sliderH },
+      sfx: { x: sliderX, y: sfxY, w: sliderW, h: sliderH },
+      close: { x: closeX, y: closeY, w: closeButtonSize, h: closeButtonSize },
+      closeIcon: { x: closeIconX, y: closeIconY, w: closeIconSize, h: closeIconSize },
+      handLeft: { x: optionLeft, y: handedY, w: optionButtonW, h: optionButtonH },
+      handRight: { x: optionLeft + optionButtonW + optionGap, y: handedY, w: optionButtonW, h: optionButtonH },
+      fireLeft: { x: optionLeft, y: fireY, w: optionButtonW, h: optionButtonH },
+      fireRight: { x: optionLeft + optionButtonW + optionGap, y: fireY, w: optionButtonW, h: optionButtonH },
+      cog: { x: cogX, y: cogY, w: cogButtonSize, h: cogButtonSize },
+      cogIcon: { x: cogIconX, y: cogIconY, w: cogSize, h: cogSize },
+    };
+  }
+
+  private isWithin(point: Vec2, rect: { x: number; y: number; w: number; h: number }): boolean {
+    return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
+  }
+
+  private isTouchDevice(): boolean {
+    return navigator.maxTouchPoints > 0;
+  }
+
+  private renderTouchControlsOverlay(): void {
+    const { x: w, y: h } = this.viewportSize;
+    const alpha = Math.min(1, this.touchHintTimer / 1.0);
+
+    const stickWidth = w * this.touchLeftRegionRatio;
+    const stickStart = this.touchHandedness === 'left' ? w - stickWidth : 0;
+    const stickEnd = this.touchHandedness === 'left' ? w : stickWidth;
+    const actionStart = this.touchHandedness === 'left' ? 0 : stickEnd;
+    const actionEnd = this.touchHandedness === 'left' ? stickStart : w;
+    const actionMid = actionStart + (actionEnd - actionStart) * 0.5;
+
+    const yLine = h * 0.78;
+    const ySwipe = h * 0.62;
+    const pad = 24;
+
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.85 * alpha;
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    this.ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    this.ctx.lineWidth = 3;
+    this.ctx.lineCap = 'round';
+
+    // Joystick region (double-headed arrow)
+    this.drawArrowLine(stickStart + pad, yLine, stickEnd - pad, yLine, true);
+    this.ctx.font = `14px ${this.fontFamily}`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText('Joystick', (stickStart + stickEnd) / 2, yLine - 10);
+
+    // Swipe right for shield
+    const swipeStart = actionStart + pad;
+    const swipeEnd = Math.max(swipeStart + 60, actionEnd - pad);
+    this.drawArrowLine(swipeStart, ySwipe, swipeEnd, ySwipe, false);
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText('Swipe Right: Shield On/Off', (swipeStart + swipeEnd) / 2, ySwipe - 10);
+
+    // Tap zones for thrust/fire
+    const leftTapX = actionStart + (actionMid - actionStart) / 2;
+    const rightTapX = actionMid + (actionEnd - actionMid) / 2;
+    const fireLeft = this.touchFireSide === 'left';
+    const fireX = fireLeft ? leftTapX : rightTapX;
+    const thrustX = fireLeft ? rightTapX : leftTapX;
+
+    this.drawTapMarker(fireX, yLine, 'Fire');
+    this.drawTapMarker(thrustX, yLine, 'Thrust');
+
+    this.ctx.restore();
+  }
+
+  private drawArrowLine(x1: number, y1: number, x2: number, y2: number, bothEnds: boolean): void {
+    this.ctx.beginPath();
+    this.ctx.moveTo(x1, y1);
+    this.ctx.lineTo(x2, y2);
+    this.ctx.stroke();
+
+    const headSize = 10;
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    this.drawArrowHead(x2, y2, angle, headSize);
+    if (bothEnds) {
+      this.drawArrowHead(x1, y1, angle + Math.PI, headSize);
+    }
+  }
+
+  private drawArrowHead(x: number, y: number, angle: number, size: number): void {
+    this.ctx.beginPath();
+    this.ctx.moveTo(x, y);
+    this.ctx.lineTo(x - size * Math.cos(angle - Math.PI / 6), y - size * Math.sin(angle - Math.PI / 6));
+    this.ctx.lineTo(x - size * Math.cos(angle + Math.PI / 6), y - size * Math.sin(angle + Math.PI / 6));
+    this.ctx.closePath();
+    this.ctx.fill();
+  }
+
+  private drawTapMarker(x: number, y: number, label: string): void {
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, 16, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+
+    this.ctx.font = `14px ${this.fontFamily}`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'bottom';
+    const labelY = y - 18;
+    const metrics = this.ctx.measureText(label);
+    const pad = 6;
+    const rectW = metrics.width + pad * 2;
+    const rectH = 18;
+    this.ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    this.drawRoundedRect(this.ctx, x - rectW / 2, labelY - rectH + 2, rectW, rectH, 6);
+    this.ctx.fill();
+    this.ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    this.ctx.fillText(label, x, labelY);
+    this.ctx.restore();
+  }
+
   private setupSystems(): void {
     this.setupUi();
     this.setupTouchControls();
@@ -953,50 +1506,105 @@ class CH17 extends Engine {
 
     this.setUiPointerEvents(true);
 
-    this.touchControls = new TouchControls({
+    this.touchControls = new DynamicTouchControls({
       canvas: uiCanvas,
       input: this.input,
       mapPoint: (point) => this.screenToWorld(point),
-      sticks: [
-        {
-          id: 'move',
-          anchor: 'bottom-left',
-          offsetX: 120,
-          offsetY: -120,
-          radius: 84,
-          knobRadius: 36,
-          actions: {
-            left: 'turnLeft',
-            right: 'turnRight',
-            up: 'thrust',
-          },
-        },
-      ],
-      buttons: [
-        {
-          id: 'fire',
-          action: 'fire',
-          anchor: 'bottom-right',
-          offsetX: -120,
-          offsetY: -120,
-          radius: 44,
-          label: 'Fire',
-        },
-        {
-          id: 'shield',
-          action: 'shield',
-          anchor: 'bottom-right',
-          offsetX: -210,
-          offsetY: -170,
-          radius: 36,
-          label: 'Shield',
-        },
-      ],
-      labelFont: '12px "Space Grotesk", sans-serif',
+      deadzone: 0.22,
+      alpha: 0.6,
+      leftRegionRatio: this.touchLeftRegionRatio,
+      stickRadius: 90,
+      knobRadius: 38,
+      showStickVisuals: false,
+      handedness: this.touchHandedness,
+      fireSide: this.touchFireSide,
       scaleProvider: () => Math.max(1, 1 / this.renderScale),
     });
 
     this.addUILayer(this.touchControls);
+  }
+
+  private applyTouchControlsOptions(): void {
+    this.touchControls?.setHandedness(this.touchHandedness);
+    this.touchControls?.setFireSide(this.touchFireSide);
+  }
+
+  private getTouchHintSignature(): string {
+    return JSON.stringify({
+      handedness: this.touchHandedness,
+      fireSide: this.touchFireSide,
+      leftRegionRatio: this.touchLeftRegionRatio,
+    });
+  }
+
+  private async loadPreferences(): Promise<void> {
+    try {
+      const stored = await Preferences.get({ key: this.settingsStorageKey });
+      if (!stored.value) {
+        this.audio.setMusicVolume(this.musicVolume);
+        this.audio.setSfxVolume(this.sfxVolume);
+        this.applyTouchControlsOptions();
+        return;
+      }
+
+      const data = JSON.parse(stored.value) as Partial<{
+        musicVolume: number;
+        sfxVolume: number;
+        touchHandedness: 'left' | 'right';
+        touchFireSide: 'left' | 'right';
+        touchHintShown: boolean;
+        touchHintSignature: string;
+      }>;
+
+      if (typeof data.musicVolume === 'number') {
+        this.musicVolume = Math.max(0, Math.min(1, data.musicVolume));
+      }
+      if (typeof data.sfxVolume === 'number') {
+        this.sfxVolume = Math.max(0, Math.min(1, data.sfxVolume));
+      }
+      if (data.touchHandedness === 'left' || data.touchHandedness === 'right') {
+        this.touchHandedness = data.touchHandedness;
+      }
+      if (data.touchFireSide === 'left' || data.touchFireSide === 'right') {
+        this.touchFireSide = data.touchFireSide;
+      }
+      if (typeof data.touchHintShown === 'boolean') {
+        this.touchHintShown = data.touchHintShown;
+      }
+      if (typeof data.touchHintSignature === 'string') {
+        this.touchHintSignature = data.touchHintSignature;
+      }
+
+      const currentSignature = this.getTouchHintSignature();
+      if (this.touchHintSignature !== currentSignature) {
+        this.touchHintShown = false;
+        this.touchHintSignature = currentSignature;
+      }
+
+      this.audio.setMusicVolume(this.musicVolume);
+      this.audio.setSfxVolume(this.sfxVolume);
+      this.applyTouchControlsOptions();
+    } catch {
+      this.audio.setMusicVolume(this.musicVolume);
+      this.audio.setSfxVolume(this.sfxVolume);
+      this.applyTouchControlsOptions();
+    }
+  }
+
+  private async savePreferences(): Promise<void> {
+    const payload = JSON.stringify({
+      musicVolume: this.musicVolume,
+      sfxVolume: this.sfxVolume,
+      touchHandedness: this.touchHandedness,
+      touchFireSide: this.touchFireSide,
+      touchHintShown: this.touchHintShown,
+      touchHintSignature: this.getTouchHintSignature(),
+    });
+    try {
+      await Preferences.set({ key: this.settingsStorageKey, value: payload });
+    } catch {
+      // Ignore persistence errors on unsupported platforms
+    }
   }
 
   private updateWorldDuringRespawn(deltaTime: number): void {
