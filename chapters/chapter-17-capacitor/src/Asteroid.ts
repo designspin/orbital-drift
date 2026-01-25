@@ -39,7 +39,7 @@ export class Asteroid extends Entity implements CircleCollider {
   private shapePoints: Array<{ angle: number; scale: number }>;
   private shouldSplit: boolean = false;
   private hasSplit: boolean = false;
-  private onDestroyed?: (asteroid: Asteroid) => void;
+  private onDestroyed?: (asteroid: Asteroid, scored?: boolean) => void;
   private hasScored: boolean = false;
   private sprite?: HTMLImageElement;
   private spriteRect?: { x: number; y: number; w: number; h: number };
@@ -50,7 +50,7 @@ export class Asteroid extends Entity implements CircleCollider {
   constructor(
     position: Vec2,
     size: AsteroidSize = "L",
-    onDestroyed?: (asteroid: Asteroid) => void,
+    onDestroyed?: (asteroid: Asteroid, scored?: boolean) => void,
     sprite?: HTMLImageElement,
     rectsBySize?: Record<AsteroidSize, Array<{ x: number; y: number; w: number; h: number }>>
   ) {
@@ -206,7 +206,7 @@ export class Asteroid extends Entity implements CircleCollider {
     if (other instanceof Bullet) {
       if (!this.hasScored) {
         this.hasScored = true;
-        this.onDestroyed?.(this);
+        this.onDestroyed?.(this, true);
       }
       this.shouldSplit = true;
       this.alive = false;
@@ -214,6 +214,7 @@ export class Asteroid extends Entity implements CircleCollider {
     }
 
     if (other instanceof EnemyBullet) {
+      this.onDestroyed?.(this, false);
       this.shouldSplit = true;
       this.alive = false;
       return;

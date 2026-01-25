@@ -6,6 +6,8 @@ interface ShipInfo {
   behavior?: EnemyBehavior;
   scale: number;
   isBoss?: boolean;
+  isCredits?: boolean;
+  creditsLines?: string[];
   bossSpriteIndex?: number;
   isFinalBoss?: boolean;
   bossRadius?: number;
@@ -15,6 +17,8 @@ interface ShipInfo {
 
 export class ShipShowcase {
   private sprites = new SpriteRegistry();
+  private limitToSingleShip = false;
+  private originalShips?: ShipInfo[];
   private ships: ShipInfo[] = [
     {
       name: "SCOUT DRONE",
@@ -200,12 +204,29 @@ export class ShipShowcase {
         "Multi-phase apocalypse"
       ],
       stats: []
+    },
+    {
+      name: "CREDITS",
+      scale: 1,
+      isCredits: true,
+      creditsLines: [
+        "Game By",
+        "",
+        "Jason Foster",
+        "",
+        "Music",
+        "",
+        "Doomed Track - Alexander Ehlers",
+        "Flags Track - Alexander Ehlers",
+        "Source: opengameart.org",
+      ],
+      description: [],
+      stats: []
     }
   ];
 
   private currentShipIndex: number = 0;
   private shipTimer: number = 0;
-  private shipDuration: number = 4; // Time per ship (legacy)
   private shipPauseDuration: number = 1.8; // Pause after each ship
   private isActive: boolean = false;
 
@@ -237,6 +258,16 @@ export class ShipShowcase {
   private cycleResetDuration: number = 0.9;
 
   start(): void {
+    if (this.limitToSingleShip) {
+      if (!this.originalShips) {
+        this.originalShips = this.ships.slice();
+      }
+      if (this.originalShips.length > 1) {
+        this.ships = [this.originalShips[0], this.originalShips[this.originalShips.length - 1]];
+      }
+    } else if (this.originalShips) {
+      this.ships = this.originalShips.slice();
+    }
     this.isActive = true;
     this.isTransitioning = true;
     this.isFadingOut = false;
@@ -326,7 +357,7 @@ export class ShipShowcase {
       this.phaseTimer += deltaTime;
 
       const currentShip = this.ships[this.currentShipIndex];
-      const maxChars = currentShip?.name.length ?? 0;
+      const maxChars = this.getEntryMaxChars(currentShip);
 
       switch (this.phase) {
         case "enter": {
@@ -422,6 +453,11 @@ export class ShipShowcase {
     let alpha = 1;
     if (this.isFadingOut) {
       alpha = 1 - (this.fadeTimer / this.fadeOutDuration);
+    }
+
+    if (ship.isCredits) {
+      this.renderCreditsText(ctx, width, height, alpha);
+      return;
     }
 
     const isBoss = Boolean(ship.isBoss);
@@ -540,6 +576,83 @@ export class ShipShowcase {
       ctx.save();
       ctx.fillStyle = `rgba(0, 255, 128, ${alpha})`;
       ctx.font = 'bold 24px "Courier New", monospace';
+      ctx.fillText('_', x + 2, y);
+      ctx.restore();
+    }
+  }
+
+  private getEntryMaxChars(entry: ShipInfo): number {
+    if (entry.isCredits) {
+      const lines = entry.creditsLines ?? [];
+      return lines.reduce((sum, line) => sum + line.length + 1, 0);
+    }
+    return entry.name.length;
+  }
+
+  private renderCreditsText(ctx: CanvasRenderingContext2D, width: number, height: number, alpha: number): void {
+    const ship = this.ships[this.currentShipIndex];
+    const lines = ship.creditsLines ?? [];
+    const textX = width * 0.25;
+    const textStartY = height / 2 - 30;
+    const lineHeight = 26;
+    const gapHeight = lineHeight * 0.5;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = `rgba(0, 255, 128, ${alpha})`;
+    ctx.font = '20px "Courier New", monospace';
+    ctx.textAlign = 'left';
+
+    let charCount = 0;
+    let y = textStartY;
+    lines.forEach((line) => {
+      const text = this.getCreditsTypewriterText(line, charCount);
+      ctx.fillText(text, textX, y);
+      charCount += line.length + 1;
+      y += line.length === 0 ? gapHeight : lineHeight;
+    });
+
+    const cursorPos = this.getCreditsCursorPosition(ctx, textX, textStartY, lines, lineHeight, gapHeight);
+    this.drawCreditsCursor(ctx, cursorPos.x, cursorPos.y, alpha);
+
+    ctx.restore();
+  }
+
+  private getCreditsTypewriterText(fullText: string, startIndex: number): string {
+    const endIndex = Math.max(0, this.typewriterIndex - startIndex);
+    return fullText.substring(0, Math.min(endIndex, fullText.length));
+  }
+
+  private getCreditsCursorPosition(
+    ctx: CanvasRenderingContext2D,
+    textX: number,
+    textStartY: number,
+    lines: string[],
+    lineHeight: number,
+    gapHeight: number
+  ): { x: number; y: number } {
+    let remaining = this.typewriterIndex;
+    let y = textStartY;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (remaining <= line.length) {
+        const current = line.substring(0, Math.max(0, remaining));
+        return { x: textX + ctx.measureText(current).width, y };
+      }
+      remaining -= line.length + 1;
+      y += line.length === 0 ? gapHeight : lineHeight;
+    }
+
+    const lastIndex = lines.length - 1;
+    const lastLine = lines[lastIndex] ?? '';
+    return { x: textX + ctx.measureText(lastLine).width, y };
+  }
+
+  private drawCreditsCursor(ctx: CanvasRenderingContext2D, x: number, y: number, alpha: number): void {
+    if (Math.floor(Date.now() / 500) % 2) {
+      ctx.save();
+      ctx.fillStyle = `rgba(0, 255, 128, ${alpha})`;
+      ctx.font = '20px "Courier New", monospace';
       ctx.fillText('_', x + 2, y);
       ctx.restore();
     }

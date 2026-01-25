@@ -61,7 +61,6 @@ export class Enemy extends Entity implements CircleCollider {
   // Movement state
   private movementPhase: number = 0;
   private stateTimer: number = 0;
-  private targetPosition: Vec2 = { x: 0, y: 0 };
   private velocity: Vec2 = { x: 0, y: 0 };
   private acceleration: Vec2 = { x: 0, y: 0 };
 
@@ -286,13 +285,13 @@ export class Enemy extends Entity implements CircleCollider {
     const ny = dy / dist;
 
     // Update movement based on behavior
-    this.updateMovement(deltaTime, target, dist, nx, ny, screenSize);
+    this.updateMovement(deltaTime, target, dist, nx, ny);
 
     // Update shooting
     this.updateShooting(deltaTime, target, dist);
 
     // Apply special effects
-    this.applySpecialEffects(deltaTime);
+    this.applySpecialEffects();
 
     // Keep within bounds
     this.position.x = Math.max(20, Math.min(this.position.x, screenSize.x - 20));
@@ -306,7 +305,7 @@ export class Enemy extends Entity implements CircleCollider {
     }
   }
 
-  private updateMovement(deltaTime: number, target: Vec2, dist: number, nx: number, ny: number, screenSize: Vec2): void {
+  private updateMovement(deltaTime: number, target: Vec2, dist: number, nx: number, ny: number): void {
     let desiredVx = 0;
     let desiredVy = 0;
 
@@ -393,7 +392,6 @@ export class Enemy extends Entity implements CircleCollider {
           desiredVy = ny * this.speed;
         } else {
           // Circle at medium range
-          const circleSpeed = 0.5;
           desiredVx = -ny * this.speed * 0.5 + nx * this.speed * 0.2;
           desiredVy = nx * this.speed * 0.5 + ny * this.speed * 0.2;
         }
@@ -597,7 +595,7 @@ export class Enemy extends Entity implements CircleCollider {
 
     if (this.shootCooldown <= 0) {
       // Check if we can shoot
-      const canShoot = this.canShootAt(target, dist);
+      const canShoot = this.canShootAt(dist);
 
       if (canShoot) {
         // Special aiming for snipers
@@ -641,7 +639,7 @@ export class Enemy extends Entity implements CircleCollider {
     }
   }
 
-  private canShootAt(target: Vec2, dist: number): boolean {
+  private canShootAt(dist: number): boolean {
     // Behavior-specific shooting conditions
     switch (this.behavior) {
       case "scout":
@@ -719,7 +717,7 @@ export class Enemy extends Entity implements CircleCollider {
     }
   }
 
-  private applySpecialEffects(deltaTime: number): void {
+  private applySpecialEffects(): void {
     // Special visual effects for behaviors
     if (this.behavior === "assassin") {
       // Pulsing opacity when cloaked

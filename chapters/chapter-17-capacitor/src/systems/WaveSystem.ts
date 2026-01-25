@@ -8,7 +8,6 @@ type WaveSystemOptions = {
   maxEnemyCap: number;
   waveTransitionDuration: number;
   getEnemyCount: () => number;
-  getAsteroidCount: () => number;
   spawnEnemy: () => void;
   spawnAsteroid: (size: AsteroidSize) => void;
   spawnBoss?: (wave: number) => void;
@@ -28,7 +27,6 @@ export class WaveSystem implements System {
   private waveTransitionDuration: number;
   private seedBase: number;
   private getEnemyCount: () => number;
-  private getAsteroidCount: () => number;
   private spawnEnemy: () => void;
   private spawnAsteroid: (size: AsteroidSize) => void;
   private spawnBoss?: (wave: number) => void;
@@ -41,7 +39,6 @@ export class WaveSystem implements System {
     this.maxEnemyCap = opts.maxEnemyCap;
     this.waveTransitionDuration = opts.waveTransitionDuration;
     this.getEnemyCount = opts.getEnemyCount;
-    this.getAsteroidCount = opts.getAsteroidCount;
     this.spawnEnemy = opts.spawnEnemy;
     this.spawnAsteroid = opts.spawnAsteroid;
     this.spawnBoss = opts.spawnBoss;

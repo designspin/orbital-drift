@@ -6,7 +6,7 @@ export type GameEvents = {
   'shot:enemy': { position: Vec2; angle: number };
   'missile:thrust': { position: Vec2; angle: number };
   'missile:destroyed': { position: Vec2 };
-  'asteroid:destroyed': { asteroid: Asteroid };
+  'asteroid:destroyed': { asteroid: Asteroid; scored?: boolean };
   'enemy:destroyed': { position: Vec2 };
   'boss:hit': { position: Vec2; healthRatio: number };
   'boss:destroyed': { position: Vec2 };

@@ -21,7 +21,6 @@ export class Player extends Entity implements CircleCollider {
   private shieldEnergy: number = 1;
   private shieldRenderer: ShieldRenderer = new ShieldRenderer();
   private invulnerableTimer: number = 0;
-  private invulnerableDuration: number = 3.0; // 3 seconds of invulnerability after spawn
   private flashTimer: number = 0; // For flashing effect during invulnerability
   private get controller(): PlayerController {
     return this._controller;
@@ -124,16 +123,15 @@ export class Player extends Entity implements CircleCollider {
   }
 
   render(ctx: CanvasRenderingContext2D): void {
-    // Flash effect during invulnerability (skip rendering every other frame)
+    let invulnAlpha = 1;
     if (this.invulnerableTimer > 0) {
-      const flash = Math.sin(this.flashTimer) > 0;
-      if (!flash) {
-        return; // Skip rendering to create flashing effect
-      }
+      const pulse = (Math.sin(this.flashTimer) + 1) / 2;
+      invulnAlpha = 0.45 + 0.55 * pulse;
     }
 
     ctx.save();
     ctx.translate(this.position.x, this.position.y);
+    ctx.globalAlpha = invulnAlpha;
     // Render shield with advanced effects
     this.shieldRenderer.render(ctx, this.radius, this.shieldEnergy, this.shieldActive);
     ctx.rotate((this.angle * Math.PI) / 180);

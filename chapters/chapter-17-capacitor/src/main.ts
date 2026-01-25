@@ -324,11 +324,6 @@ class CH17 extends Engine {
     }
   }
 
-  private renderTitleScreen(titleOffsetY: number = 0, promptOffsetY: number = 0): void {
-    this.renderTitleBackground();
-    this.renderTitleText(titleOffsetY, promptOffsetY);
-  }
-
   private renderTitleBackground(): void {
     const { x: w, y: h } = this.viewportSize;
     this.ctx.clearRect(0, 0, w, h);
@@ -394,6 +389,7 @@ class CH17 extends Engine {
     this.ctx.fillStyle = `rgba(255,255,255,${promptAlpha.toFixed(3)})`;
     this.ctx.font = `18px ${this.fontFamily}`;
     this.ctx.fillText('Press Fire to Start', w / 2, h / 2 + 28 + promptOffsetY); // Apply prompt offset
+
   }
 
 
@@ -697,7 +693,19 @@ class CH17 extends Engine {
                         this.input.wasActionPressed('up') ||
                         this.input.wasActionPressed('down');
 
-        // Handle ship showcase
+        // Start game on confirm/fire
+        if (confirmPressed || firePressed) {
+          this.resetGame();
+          const bossActive = this.waveSystem.isBossActive;
+          void this.audio.resume().then(() => {
+            this.bossMusicActive = bossActive;
+            this.audio.playSound('start', 0.7);
+            this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
+          });
+          this.stateMachine.set('playing');
+          return;
+        }
+
         if (this.shipShowcase.isRunning()) {
           // Update the showcase
           const stillActive = this.shipShowcase.update(dt);
@@ -726,17 +734,6 @@ class CH17 extends Engine {
             this.idleTimeInMenu = 0;
           }
 
-          // Start game on confirm/fire
-          if (confirmPressed || firePressed) {
-            this.resetGame();
-            const bossActive = this.waveSystem.isBossActive;
-            void this.audio.resume().then(() => {
-              this.bossMusicActive = bossActive;
-              this.audio.playSound('start', 0.7);
-              this.audio.playMusic(bossActive ? 'doomed' : 'flags', 0.5);
-            });
-            this.stateMachine.set('playing');
-          }
         }
       },
       render: () => {
@@ -892,8 +889,10 @@ class CH17 extends Engine {
 
 
   private setupEvents(): void {
-    this.events.on('asteroid:destroyed', ({ asteroid }) => {
-      this.scoreSystem.onAsteroidDestroyed(asteroid);
+    this.events.on('asteroid:destroyed', ({ asteroid, scored }) => {
+      if (scored !== false) {
+        this.scoreSystem.onAsteroidDestroyed(asteroid);
+      }
       this.waveSystem.onAsteroidDestroyed();
     });
 
@@ -924,7 +923,6 @@ class CH17 extends Engine {
       maxEnemyCap: this.maxEnemyCap,
       waveTransitionDuration: GAME_CONFIG.waves.transitionDuration,
       getEnemyCount: () => this.enemies.length,
-      getAsteroidCount: () => this.asteroids.length,
       spawnEnemy: () => this.spawnEnemyAtRandom(),
       spawnAsteroid: (size) => this.spawnAsteroidAtRandom(size),
       spawnBoss: (wave) => this.spawnBoss(wave),
@@ -1697,8 +1695,8 @@ class CH17 extends Engine {
   }
 
 
-  private onAsteroidDestroyed = (asteroid: Asteroid): void => {
-    this.events.emit('asteroid:destroyed', { asteroid });
+  private onAsteroidDestroyed = (asteroid: Asteroid, scored: boolean = true): void => {
+    this.events.emit('asteroid:destroyed', { asteroid, scored });
   };
 
 

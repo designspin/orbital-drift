@@ -72,13 +72,10 @@ export class BossV2 extends Entity implements CircleCollider {
   // Attack state
   private attackTimers: Map<string, number> = new Map();
   private attackStates: Map<string, any> = new Map();
-  private isAttacking: boolean = false;
-  private nextAttackIndex: number = 0;
 
   // Movement state
   private movementPhase: number = 0;
   private movementState: any = {};
-  private targetPosition: Vec2 = { x: 0, y: 0 };
   private velocity: Vec2 = { x: 0, y: 0 };
   private patrolAnchor?: Vec2;
 
@@ -100,12 +97,10 @@ export class BossV2 extends Entity implements CircleCollider {
   private deathAlpha: number = 1;
 
   // Special attack visuals
-  private beamChargeProgress: number = 0;
   private beamAngle: number = 0;
   private beamSweepProgress: number = 0;
   private spiralAngle: number = 0;
   private shockwaveRadius: number = 0;
-  private activeMinionPositions: Vec2[] = [];
 
   // Callbacks
   private getTarget: () => Vec2;
@@ -208,7 +203,6 @@ export class BossV2 extends Entity implements CircleCollider {
     const target = this.getTarget();
     const dx = target.x - this.position.x;
     const dy = target.y - this.position.y;
-    const dist = Math.hypot(dx, dy) || 1;
     this.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
 
     // Update movement
@@ -651,7 +645,6 @@ export class BossV2 extends Entity implements CircleCollider {
     if (beamState) {
       if (beamState.charging) {
         beamState.chargeTimer += deltaTime;
-        this.beamChargeProgress = Math.min(1, beamState.chargeTimer / 2); // 2 second charge
 
         if (beamState.chargeTimer >= 2) {
           beamState.charging = false;
@@ -671,7 +664,6 @@ export class BossV2 extends Entity implements CircleCollider {
 
         if (beamState.firingTimer >= (attack?.type === "beam" ? attack.duration : 1)) {
           this.attackStates.delete("beam");
-          this.beamChargeProgress = 0;
         }
       }
     }
