@@ -1,0 +1,19 @@
+<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Solid dark blue background -->
+  <rect width="1024" height="1024" fill="#0f1729"/>
+
+  <g transform="translate(512, 512) rotate(-45)">
+    <!-- Shield halo (glow effect - multiple rings) -->
+    <circle cx="0" cy="0" r="360" fill="none" stroke="#4a9eff" stroke-width="40" opacity="0.15"/>
+    <circle cx="0" cy="0" r="360" fill="none" stroke="#4a9eff" stroke-width="24" opacity="0.3"/>
+    <circle cx="0" cy="0" r="360" fill="none" stroke="#7fcfff" stroke-width="8" opacity="0.6"/>
+
+    <!-- Thruster trail (dashed segments, larger to smaller) -->
+    <polygon points="0,300 -35,180 35,180" fill="#4a9eff" opacity="0.3"/>
+    <polygon points="0,260 -28,170 28,170" fill="#4a9eff" opacity="0.4"/>
+    <polygon points="0,220 -20,160 20,160" fill="#4a9eff" opacity="0.5"/>
+
+    <!-- Ship body - wider triangle -->
+    <polygon points="0,-200 -160,140 0,80 160,140" fill="#4a9eff"/>
+  </g>
+</svg>

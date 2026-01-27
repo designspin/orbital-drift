@@ -24,4 +24,10 @@ export const GAME_CONFIG = {
   waves: {
     transitionDuration: 2,
   },
+  gameCenter: {
+    leaderboardId: 'orbitaldriftleaderboard',
+  },
+  iap: {
+    fullGameProductId: 'orbitaldrift.fullgame',
+  },
 } as const;

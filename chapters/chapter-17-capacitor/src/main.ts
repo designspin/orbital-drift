@@ -1,13 +1,19 @@
 import './style.css'
 import { AssetManager, AudioManager, Camera, Engine, EventBus, ParticleSystem, StateMachine, SystemManager, easeInOutSine } from '@course/lib';
-import { Preferences } from '@capacitor/preferences';
+import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
+import { GameCenterManager } from './GameCenterManager';
+import { SettingsManager } from './SettingsManager';
+import { ThemeManager } from './ThemeManager';
+import { BossFactory } from './BossFactory';
+import { SpawnManager } from './SpawnManager';
 import type { GameState, Vec2 } from '@course/lib';
 import { Player } from './Player';
 import { PlayerController } from './PlayerController';
 import { Asteroid, type AsteroidSize } from './Asteroid';
 import { Bullet } from './Bullet';
 import { Enemy, type EnemyBehavior } from './Enemy';
-import { BossV2, type BossConfig } from './BossV2';
+import { BossV2 } from './BossV2';
 import { EnemyBullet } from './EnemyBullet';
 import { HomingMissile } from './HomingMissile';
 import { GAME_CONFIG } from './config';
@@ -22,6 +28,8 @@ import { SpriteRegistry } from './SpriteRegistry';
 import { BackgroundRenderer } from './BackgroundRenderer';
 import { ShipShowcase } from './ShipShowcase';
 import { DynamicTouchControls } from './DynamicTouchControls';
+import { IAPManager } from './IAPManager';
+import { MenuUI, type MenuUIState } from './ui/MenuUI';
 
 class CH17 extends Engine {
   private assets = new AssetManager();
@@ -46,6 +54,8 @@ class CH17 extends Engine {
   private asteroidSprite?: HTMLImageElement;
   private gearIcon?: HTMLImageElement;
   private closeIcon?: HTMLImageElement;
+  private leaderboardIcon?: HTMLImageElement;
+  private cartIcon?: HTMLImageElement;
   private touchControls?: DynamicTouchControls;
 
   private lives = 3;
@@ -75,11 +85,9 @@ class CH17 extends Engine {
   private idleTimeInMenu = 0;
   private menuIdleThreshold = 8; // seconds before showing ship showcase
   private stateMachine = new StateMachine<GameState>();
-  private themeOverlay: string = 'rgba(0,0,0,0)';
-  private currentTheme?: { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number };
-  private targetTheme?: { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number };
-  private themeBlendTime = 0;
-  private themeBlendDuration = 3;
+  private themeManager = new ThemeManager();
+  private bossFactory = new BossFactory();
+  private spawnManager!: SpawnManager;
   private gameOverTime = 0;
   private fontFamily = '"Space Grotesk", sans-serif';
   private minZoom = 1.0;
@@ -89,32 +97,28 @@ class CH17 extends Engine {
   private seed: number = GAME_CONFIG.seed;
   private bossTestEnabled = false;
   private testWave = 0;
-  private enemySpawnPlan: Array<{ kind: 'single' | 'sine'; x: number; y: number; typeIndex?: number }> = [];
-  private enemySpawnPlanIndex = 0;
-  private asteroidSpawnPlan: Array<{ x: number; y: number }> = [];
-  private asteroidSpawnPlanIndex = 0;
   private thrusterLoopActive = false;
   private waveOverlayTime = 0;
   private bossMusicActive = false;
-  private settingsOpen = false;
-  private settingsPointerId: number | null = null;
-  private settingsDragging: 'music' | 'sfx' | null = null;
-  private musicVolume = 0.5;
-  private sfxVolume = 1;
-  private touchHandedness: 'right' | 'left' = 'right';
-  private touchFireSide: 'right' | 'left' = 'right';
+  private menuUI!: MenuUI;
   private touchLeftRegionRatio = 0.52;
+  private touchActionRegionRatio = 0.33;
   private touchHintActive = false;
   private touchHintTimer = 0;
   private touchHintDuration = 5;
-  private touchHintShown = false;
-  private touchHintSignature = '';
-  private settingsStorageKey = 'od-settings';
+  private settingsManager = new SettingsManager();
+  private gameCenterManager = new GameCenterManager(GAME_CONFIG.gameCenter?.leaderboardId ?? '');
+  private iapManager = new IAPManager(GAME_CONFIG.iap.fullGameProductId);
+  private iapMessageTimer = 0;
+  private sfxPreviewCooldown = 0.25;
+  private lastSfxPreviewAt = 0;
   private settingsSuppressStart = 0;
+  private pendingAudioResume = false;
   private onPointerDown: (e: PointerEvent) => void = () => this.input.setActionState('confirm', true);
   private onPointerMove: (e: PointerEvent) => void = (_e) => {};
   private onPointerUp: (e: PointerEvent) => void = () => this.input.setActionState('confirm', false);
   private onTouchStart: (e: TouchEvent) => void = () => this.input.setActionState('confirm', true);
+  private onTouchMove: (e: TouchEvent) => void = () => {};
   private onTouchEnd: (e: TouchEvent) => void = () => this.input.setActionState('confirm', false);
 
   protected override get screenSize(): Vec2 {
@@ -145,9 +149,45 @@ class CH17 extends Engine {
     }
     this.setupActions();
     this.setupTapToStart();
-    void this.loadPreferences();
-    this.audio.setMusicVolume(this.musicVolume);
-    this.audio.setSfxVolume(this.sfxVolume);
+    this.setupAppLifecycle();
+    this.settingsManager.setCallbacks({
+      onMusicVolumeChange: (volume) => this.audio.setMusicVolume(volume),
+      onSfxVolumeChange: (volume) => this.audio.setSfxVolume(volume),
+      onTouchOptionsChange: (handedness, fireSide) => {
+        this.touchControls?.setHandedness(handedness);
+        this.touchControls?.setFireSide(fireSide);
+      },
+    });
+    this.menuUI = new MenuUI({
+      onVolumeChange: (kind, value) => this.handleVolumeChange(kind, value),
+      onTouchOptionsChange: (handedness, fireSide) => {
+        this.settingsManager.setTouchOptions(handedness, fireSide);
+      },
+      onOpenLeaderboard: () => {
+        void this.handleLeaderboardPress();
+      },
+      onPurchase: () => {
+        void this.iapManager.purchase();
+      },
+      onRestore: () => {
+        void this.iapManager.restore();
+      },
+      onSuppressStart: () => {
+        this.settingsSuppressStart = 0.25;
+      },
+    });
+    void this.settingsManager.load();
+    // Delay IAP initialization to ensure CdvPurchase is fully loaded
+    setTimeout(() => {
+      console.log('[Main] Initializing IAP Manager...');
+      this.iapManager.init((state) => {
+        console.log('[Main] IAP state updated:', state);
+        // Reset message timer when new messages arrive
+        if (state.lastError || state.lastSuccess) {
+          this.iapMessageTimer = 5.0;
+        }
+      });
+    }, 1000);
     this.setUiUpdateInterval(100);
     this.setupSystems();
     this.setupEvents();
@@ -172,6 +212,7 @@ class CH17 extends Engine {
     this.onPointerMove = (e: PointerEvent) => this.handlePointerMove(e);
     this.onPointerUp = (e: PointerEvent) => this.handlePointerUp(e);
     this.onTouchStart = (e: TouchEvent) => this.handleTouchStart(e);
+    this.onTouchMove = (e: TouchEvent) => this.handleTouchMove(e);
     this.onTouchEnd = (e: TouchEvent) => this.handleTouchEnd(e);
 
     this.ctx.canvas.addEventListener('pointerdown', this.onPointerDown, { passive: false });
@@ -181,6 +222,7 @@ class CH17 extends Engine {
     this.ctx.canvas.addEventListener('pointerout', this.onPointerUp, { passive: true });
     this.ctx.canvas.addEventListener('pointerleave', this.onPointerUp, { passive: true });
     this.ctx.canvas.addEventListener('touchstart', this.onTouchStart, { passive: false });
+    this.ctx.canvas.addEventListener('touchmove', this.onTouchMove, { passive: false });
     this.ctx.canvas.addEventListener('touchend', this.onTouchEnd, { passive: true });
     this.ctx.canvas.addEventListener('touchcancel', this.onTouchEnd, { passive: true });
     window.addEventListener('pointerdown', this.onPointerDown, { passive: false });
@@ -188,12 +230,75 @@ class CH17 extends Engine {
     window.addEventListener('pointerup', this.onPointerUp, { passive: true });
     window.addEventListener('pointercancel', this.onPointerUp, { passive: true });
     window.addEventListener('touchstart', this.onTouchStart, { passive: false });
+    window.addEventListener('touchmove', this.onTouchMove, { passive: false });
     window.addEventListener('touchend', this.onTouchEnd, { passive: true });
     window.addEventListener('touchcancel', this.onTouchEnd, { passive: true });
   }
 
+  private setupAppLifecycle(): void {
+    if (Capacitor.isNativePlatform()) {
+      App.addListener('appStateChange', ({ isActive }: { isActive: boolean }) => {
+        if (isActive) {
+          this.handleAppResume();
+        } else {
+          this.handleAppPause();
+        }
+      });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.handleAppPause();
+      } else {
+        this.handleAppResume();
+      }
+    });
+
+    window.addEventListener('blur', () => this.handleAppPause());
+    window.addEventListener('focus', () => this.handleAppResume());
+  }
+
+  private handleAppPause(): void {
+    this.stopThrusterAudio();
+    this.audio.stopMusic();
+    this.pendingAudioResume = true;
+  }
+
+  private handleAppResume(): void {
+    this.pendingAudioResume = true;
+    this.tryResumeAudioFromInteraction();
+  }
+
+  private tryResumeAudioFromInteraction(): void {
+    if (!this.pendingAudioResume) return;
+    void this.audio.resume().then(() => {
+      this.audio.setSfxVolume(this.settingsManager.sfxVolume);
+      this.resumeMusicForState();
+      this.pendingAudioResume = false;
+    });
+  }
+
+  private resumeMusicForState(): void {
+    const state = this.stateMachine.currentState?.name;
+    if (!state) return;
+
+    if (state === 'menu') {
+      this.audio.playMusic('doomed', this.settingsManager.musicVolume);
+      return;
+    }
+
+    const bossActive = this.waveSystem?.isBossActive ?? false;
+    const track = bossActive ? 'doomed' : 'flags';
+    this.audio.playMusic(track, this.settingsManager.musicVolume);
+  }
+
   protected override update(deltaTime: number): void {
     this.stateMachine.update(deltaTime);
+
+    // Update IAP message timer
+    if (this.iapMessageTimer > 0) {
+      this.iapMessageTimer = Math.max(0, this.iapMessageTimer - deltaTime);
+    }
   }
 
   protected override render(): void {
@@ -209,11 +314,11 @@ class CH17 extends Engine {
     }
 
     this.backgroundRenderer.updateBackgroundTime(deltaTime);
-    this.updateThemeBlend(deltaTime);
+    this.themeManager.update(deltaTime);
     const bossActive = this.waveSystem.isBossActive;
     if (bossActive !== this.bossMusicActive) {
       this.bossMusicActive = bossActive;
-      this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.musicVolume);
+      this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.settingsManager.musicVolume);
     }
     this.shieldActive = this.input.isActionDown('shield') && this.shieldEnergy > 0;
     const thrusting = this.player.isThrusting();
@@ -317,13 +422,13 @@ class CH17 extends Engine {
     this.camera.apply(this.ctx);
 
     // World background
-    const theme = this.getBlendedTheme(this.waveSystem.currentWave);
+    const theme = this.themeManager.getBlendedTheme(this.waveSystem.currentWave);
     this.backgroundRenderer.setStarTint(theme.starTint);
     this.backgroundRenderer.setNebulaAlphaScale(theme.nebulaAlphaScale);
-    this.themeOverlay = `rgba(${theme.overlay[0]}, ${theme.overlay[1]}, ${theme.overlay[2]}, ${theme.overlay[3].toFixed(3)})`;
+    const themeOverlay = `rgba(${theme.overlay[0]}, ${theme.overlay[1]}, ${theme.overlay[2]}, ${theme.overlay[3].toFixed(3)})`;
     this.ctx.fillStyle = `rgb(${theme.base[0]}, ${theme.base[1]}, ${theme.base[2]})`;
     this.ctx.fillRect(0, 0, this.worldSize.x, this.worldSize.y);
-    this.ctx.fillStyle = this.themeOverlay;
+    this.ctx.fillStyle = themeOverlay;
     this.ctx.fillRect(0, 0, this.worldSize.x, this.worldSize.y);
     this.backgroundRenderer.renderNebulae(this.ctx, this.camera.position.x, this.camera.position.y, this.worldSize.x, this.worldSize.y);
     this.backgroundRenderer.renderStars(this.ctx, this.camera.position.x, this.camera.position.y, this.worldSize.x, this.worldSize.y);
@@ -500,68 +605,6 @@ class CH17 extends Engine {
     };
   }
 
-  private getWaveTheme(wave: number): { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number } {
-    const themes = [
-      { base: [11, 15, 26] as [number, number, number], overlay: [40, 60, 120, 0.35] as [number, number, number, number], starTint: [210, 225, 255] as [number, number, number], nebulaAlphaScale: 1.0 },
-      { base: [10, 19, 18] as [number, number, number], overlay: [40, 140, 120, 0.35] as [number, number, number, number], starTint: [170, 255, 230] as [number, number, number], nebulaAlphaScale: 0.8 },
-      { base: [20, 11, 31] as [number, number, number], overlay: [120, 50, 200, 0.4] as [number, number, number, number], starTint: [220, 180, 255] as [number, number, number], nebulaAlphaScale: 1.3 },
-      { base: [26, 11, 11] as [number, number, number], overlay: [200, 60, 40, 0.35] as [number, number, number, number], starTint: [255, 190, 170] as [number, number, number], nebulaAlphaScale: 0.9 },
-      { base: [11, 16, 32] as [number, number, number], overlay: [60, 120, 255, 0.42] as [number, number, number, number], starTint: [180, 210, 255] as [number, number, number], nebulaAlphaScale: 1.1 },
-    ];
-    return themes[(wave - 1) % themes.length];
-  }
-
-  private setWaveTheme(wave: number): void {
-    const next = this.getWaveTheme(wave);
-    if (!this.currentTheme) {
-      this.currentTheme = next;
-      this.targetTheme = next;
-      this.themeBlendTime = this.themeBlendDuration;
-      return;
-    }
-    this.targetTheme = next;
-    this.themeBlendTime = 0;
-  }
-
-  private updateThemeBlend(deltaTime: number): void {
-    if (!this.currentTheme || !this.targetTheme) return;
-    if (this.themeBlendTime < this.themeBlendDuration) {
-      this.themeBlendTime = Math.min(this.themeBlendDuration, this.themeBlendTime + deltaTime);
-    } else {
-      this.currentTheme = this.targetTheme;
-    }
-  }
-
-  private getBlendedTheme(wave: number): { base: [number, number, number]; overlay: [number, number, number, number]; starTint: [number, number, number]; nebulaAlphaScale: number } {
-    if (!this.currentTheme || !this.targetTheme) {
-      const theme = this.getWaveTheme(wave);
-      this.currentTheme = theme;
-      this.targetTheme = theme;
-      return theme;
-    }
-    const t = Math.min(1, Math.max(0, this.themeBlendTime / this.themeBlendDuration));
-    const lerp = (a: number, b: number) => a + (b - a) * t;
-    return {
-      base: [
-        Math.round(lerp(this.currentTheme.base[0], this.targetTheme.base[0])),
-        Math.round(lerp(this.currentTheme.base[1], this.targetTheme.base[1])),
-        Math.round(lerp(this.currentTheme.base[2], this.targetTheme.base[2])),
-      ],
-      overlay: [
-        Math.round(lerp(this.currentTheme.overlay[0], this.targetTheme.overlay[0])),
-        Math.round(lerp(this.currentTheme.overlay[1], this.targetTheme.overlay[1])),
-        Math.round(lerp(this.currentTheme.overlay[2], this.targetTheme.overlay[2])),
-        lerp(this.currentTheme.overlay[3], this.targetTheme.overlay[3]),
-      ],
-      starTint: [
-        Math.round(lerp(this.currentTheme.starTint[0], this.targetTheme.starTint[0])),
-        Math.round(lerp(this.currentTheme.starTint[1], this.targetTheme.starTint[1])),
-        Math.round(lerp(this.currentTheme.starTint[2], this.targetTheme.starTint[2])),
-      ],
-      nebulaAlphaScale: lerp(this.currentTheme.nebulaAlphaScale, this.targetTheme.nebulaAlphaScale),
-    };
-  }
-
   private renderCenterOverlay(title: string, subtitle?: string, elapsed: number = 0, duration: number = 1): void {
     const { x: w, y: h } = this.viewportSize;
     const { alpha, yOffset } = this.getPanelAnimation(elapsed, duration);
@@ -679,6 +722,8 @@ class CH17 extends Engine {
         this.assets.queueImage('projectiles', '/projectiles.png');
         this.assets.queueImage('gear', '/gear.png');
         this.assets.queueImage('cross', '/cross.png');
+        this.assets.queueImage('leaderboard', '/leaderboardsComplex.png');
+        this.assets.queueImage('cart', '/shoppingCart.png');
         void this.assets
           .loadAll((p) => {
             this.progress = p.percent;
@@ -698,6 +743,8 @@ class CH17 extends Engine {
             this.projectileSprite = this.assets.getImage('projectiles');
             this.gearIcon = this.assets.getImage('gear');
             this.closeIcon = this.assets.getImage('cross');
+            this.leaderboardIcon = this.assets.getImage('leaderboard');
+            this.cartIcon = this.assets.getImage('cart');
             this.audio.registerSound('doomed', this.assets.getSound('doomed'));
             this.audio.registerSound('flags', this.assets.getSound('flags'));
             this.audio.registerSound('lazerShoot', this.assets.getSound('lazerShoot'));
@@ -723,14 +770,18 @@ class CH17 extends Engine {
       enter: () => {
         this.hudSystem.setHudVisible(false);
         this.hudSystem.setPauseVisible(false);
-        this.audio.playMusic('doomed', this.musicVolume);
+        this.audio.playMusic('doomed', this.settingsManager.musicVolume);
         this.menuPulseTime = 0;
         this.titleAnimTime = 0;
         this.idleTimeInMenu = 0;
         this.shipShowcase.reset();
-        this.settingsOpen = false;
+        this.menuUI.closeAll();
         this.stopThrusterAudio();
         this.touchControls?.setVisible(false);
+        if (this.touchControls) {
+          this.setUiPointerEvents(false);
+        }
+        void this.gameCenterManager.authenticate();
       },
       update: (dt) => {
         this.menuPulseTime += dt;
@@ -740,7 +791,7 @@ class CH17 extends Engine {
           this.settingsSuppressStart = Math.max(0, this.settingsSuppressStart - dt);
         }
 
-        if (this.settingsOpen) {
+        if (this.menuUI.isBlocking()) {
           return;
         }
 
@@ -759,7 +810,7 @@ class CH17 extends Engine {
           void this.audio.resume().then(() => {
             this.bossMusicActive = bossActive;
             this.audio.playSound('start', 0.7);
-            this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.musicVolume);
+            this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.settingsManager.musicVolume);
           });
           this.stateMachine.set('playing');
           return;
@@ -814,10 +865,7 @@ class CH17 extends Engine {
         const promptOffset = this.shipShowcase.getPromptOffset();
         this.renderTitleText(titleOffset, promptOffset);
 
-        this.renderSettingsIcon();
-        if (this.settingsOpen) {
-          this.renderSettingsPanel();
-        }
+        this.menuUI.render(this.ctx, this.getMenuUIState());
       },
     };
 
@@ -828,13 +876,16 @@ class CH17 extends Engine {
         this.hudSystem.setPauseVisible(false);
         const bossActive = this.waveSystem.isBossActive;
         this.bossMusicActive = bossActive;
-        this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.musicVolume);
+        this.audio.playMusic(bossActive ? 'doomed' : 'flags', this.settingsManager.musicVolume);
         this.touchControls?.setVisible(true);
-        if (this.isTouchDevice() && !this.touchHintShown && this.waveSystem.currentWave === 1) {
+        if (this.touchControls) {
+          this.setUiPointerEvents(true);
+        }
+        void this.gameCenterManager.authenticate();
+        if (this.isTouchDevice() && this.settingsManager.shouldShowTouchHint() && this.waveSystem.currentWave === 1) {
           this.touchHintActive = true;
           this.touchHintTimer = this.touchHintDuration;
-          this.touchHintShown = true;
-          void this.savePreferences();
+          this.settingsManager.markTouchHintShown();
         }
       },
       update: (dt) => {
@@ -858,6 +909,9 @@ class CH17 extends Engine {
         this.hudSystem.setHudVisible(true);
         this.hudSystem.setPauseVisible(true);
         this.touchControls?.setVisible(true);
+        if (this.touchControls) {
+          this.setUiPointerEvents(true);
+        }
         this.stopThrusterAudio();
       },
       update: () => {
@@ -879,6 +933,9 @@ class CH17 extends Engine {
         this.hudSystem.setHudVisible(true);
         this.hudSystem.setPauseVisible(false);
         this.touchControls?.setVisible(true);
+        if (this.touchControls) {
+          this.setUiPointerEvents(true);
+        }
       },
       update: (dt) => {
         this.updateWorldDuringRespawn(dt);
@@ -918,6 +975,10 @@ class CH17 extends Engine {
         this.gameOverTime = 0;
         this.stopThrusterAudio();
         this.touchControls?.setVisible(false);
+        if (this.touchControls) {
+          this.setUiPointerEvents(false);
+        }
+        void this.submitGameCenterScore();
       },
       update: (dt) => {
         this.gameOverTime += dt;
@@ -941,22 +1002,21 @@ class CH17 extends Engine {
       .add(gameOverState);
   }
 
-    private updateThrusterAudio(thrusting: boolean): void {
-      if (thrusting && !this.thrusterLoopActive) {
-        this.audio.playLoop('thruster', 0.4);
-        this.thrusterLoopActive = true;
-      } else if (!thrusting && this.thrusterLoopActive) {
-        this.audio.stopLoop('thruster');
-        this.thrusterLoopActive = false;
-      }
-    }
-
-    private stopThrusterAudio(): void {
-      if (!this.thrusterLoopActive) return;
+  private updateThrusterAudio(thrusting: boolean): void {
+    if (thrusting && !this.thrusterLoopActive) {
+      this.audio.playLoop('thruster', 0.4);
+      this.thrusterLoopActive = true;
+    } else if (!thrusting && this.thrusterLoopActive) {
       this.audio.stopLoop('thruster');
       this.thrusterLoopActive = false;
     }
+  }
 
+  private stopThrusterAudio(): void {
+    if (!this.thrusterLoopActive) return;
+    this.audio.stopLoop('thruster');
+    this.thrusterLoopActive = false;
+  }
 
   private setupEvents(): void {
     this.events.on('asteroid:destroyed', ({ asteroid, scored }) => {
@@ -985,384 +1045,105 @@ class CH17 extends Engine {
   }
 
   private handlePointerDown(event: PointerEvent): void {
-    if (this.handleSettingsPointerDown(event)) {
-      return;
+    this.tryResumeAudioFromInteraction();
+    if (event.currentTarget === window && event.target === this.ctx.canvas) return;
+    if (this.stateMachine.currentState?.name === 'menu') {
+      const point = this.screenToWorld({ x: event.clientX, y: event.clientY });
+      if (this.menuUI.handlePointerDown(point, event.pointerId, this.getMenuUIState())) {
+        event.preventDefault();
+        return;
+      }
     }
     this.input.setActionState('confirm', true);
   }
 
   private handlePointerMove(event: PointerEvent): void {
-    this.handleSettingsPointerMove(event);
+    if (this.stateMachine.currentState?.name === 'menu') {
+      const point = this.screenToWorld({ x: event.clientX, y: event.clientY });
+      this.menuUI.handlePointerMove(point, event.pointerId, this.getMenuUIState());
+    }
   }
 
   private handlePointerUp(event: PointerEvent): void {
-    if (this.handleSettingsPointerUp(event)) {
-      return;
+    if (this.stateMachine.currentState?.name === 'menu') {
+      if (this.menuUI.handlePointerUp(event.pointerId)) {
+        event.preventDefault();
+        return;
+      }
     }
     this.input.setActionState('confirm', false);
   }
 
   private handleTouchStart(event: TouchEvent): void {
-    if (this.handleSettingsTouch(event)) {
-      return;
+    this.tryResumeAudioFromInteraction();
+    if (event.currentTarget === window && event.target === this.ctx.canvas) return;
+    if (this.stateMachine.currentState?.name === 'menu') {
+      if (this.menuUI.handleTouchStart(event, (point) => this.screenToWorld(point), this.getMenuUIState())) {
+        event.preventDefault();
+        return;
+      }
     }
     this.input.setActionState('confirm', true);
   }
 
+  private handleTouchMove(event: TouchEvent): void {
+    if (this.stateMachine.currentState?.name === 'menu') {
+      this.menuUI.handleTouchMove(event, (point) => this.screenToWorld(point), this.getMenuUIState());
+    }
+  }
+
   private handleTouchEnd(event: TouchEvent): void {
-    if (this.handleSettingsTouch(event)) {
-      return;
+    if (this.stateMachine.currentState?.name === 'menu') {
+      if (this.menuUI.handleTouchEnd(event)) {
+        event.preventDefault();
+        return;
+      }
     }
     this.input.setActionState('confirm', false);
   }
 
-  private handleSettingsTouch(event: TouchEvent): boolean {
-    if (this.stateMachine.currentState?.name !== 'menu') return false;
-    if (!this.settingsOpen) return false;
-    event.preventDefault();
-    return true;
-  }
-
-  private handleSettingsPointerDown(event: PointerEvent): boolean {
-    if (this.stateMachine.currentState?.name !== 'menu') return false;
-
-    const point = this.screenToWorld({ x: event.clientX, y: event.clientY });
-    const layout = this.getSettingsLayout();
-
-    if (!this.settingsOpen) {
-      if (this.isWithin(point, layout.cog)) {
-        this.settingsOpen = true;
-        this.settingsSuppressStart = 0.25;
-        event.preventDefault();
-        return true;
-      }
-      return false;
-    }
-
-    if (this.isWithin(point, layout.close)) {
-      this.settingsOpen = false;
-      this.settingsDragging = null;
-      this.settingsPointerId = null;
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isWithin(point, layout.music)) {
-      this.settingsDragging = 'music';
-      this.settingsPointerId = event.pointerId;
-      this.updateVolumeFromPoint(point, layout.music, 'music');
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isWithin(point, layout.sfx)) {
-      this.settingsDragging = 'sfx';
-      this.settingsPointerId = event.pointerId;
-      this.updateVolumeFromPoint(point, layout.sfx, 'sfx');
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isTouchDevice() && this.isWithin(point, layout.handLeft)) {
-      this.touchHandedness = 'left';
-      this.applyTouchControlsOptions();
-      void this.savePreferences();
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isTouchDevice() && this.isWithin(point, layout.handRight)) {
-      this.touchHandedness = 'right';
-      this.applyTouchControlsOptions();
-      void this.savePreferences();
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isTouchDevice() && this.isWithin(point, layout.fireLeft)) {
-      this.touchFireSide = 'left';
-      this.applyTouchControlsOptions();
-      void this.savePreferences();
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isTouchDevice() && this.isWithin(point, layout.fireRight)) {
-      this.touchFireSide = 'right';
-      this.applyTouchControlsOptions();
-      void this.savePreferences();
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-
-    if (this.isWithin(point, layout.panel)) {
-      event.preventDefault();
-      return true;
-    }
-
-    return false;
-  }
-
-  private handleSettingsPointerMove(event: PointerEvent): void {
-    if (!this.settingsOpen || !this.settingsDragging) return;
-    if (this.settingsPointerId !== event.pointerId) return;
-    const point = this.screenToWorld({ x: event.clientX, y: event.clientY });
-    const layout = this.getSettingsLayout();
-    if (this.settingsDragging === 'music') {
-      this.updateVolumeFromPoint(point, layout.music, 'music');
-      event.preventDefault();
-      return;
-    }
-    if (this.settingsDragging === 'sfx') {
-      this.updateVolumeFromPoint(point, layout.sfx, 'sfx');
-      event.preventDefault();
-    }
-  }
-
-  private handleSettingsPointerUp(event: PointerEvent): boolean {
-    if (!this.settingsOpen) return false;
-    if (this.settingsPointerId === event.pointerId) {
-      this.settingsPointerId = null;
-      this.settingsDragging = null;
-      this.settingsSuppressStart = 0.25;
-      event.preventDefault();
-      return true;
-    }
-    return false;
-  }
-
-  private updateVolumeFromPoint(point: Vec2, rect: { x: number; y: number; w: number; h: number }, kind: 'music' | 'sfx'): void {
-    const t = Math.max(0, Math.min(1, (point.x - rect.x) / rect.w));
-    if (kind === 'music') {
-      this.musicVolume = t;
-      this.audio.setMusicVolume(this.musicVolume);
-    } else {
-      this.sfxVolume = t;
-      this.audio.setSfxVolume(this.sfxVolume);
-    }
-    void this.savePreferences();
-  }
-
-  private renderSettingsIcon(): void {
-    const layout = this.getSettingsLayout();
-    const buttonX = layout.cog.x;
-    const buttonY = layout.cog.y;
-    const buttonSize = layout.cog.w;
-    const iconX = layout.cogIcon.x;
-    const iconY = layout.cogIcon.y;
-    const size = layout.cogIcon.w;
-
-    this.ctx.save();
-    this.ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    this.drawRoundedRect(this.ctx, buttonX, buttonY, buttonSize, buttonSize, 8);
-    this.ctx.fill();
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    this.ctx.lineWidth = 2;
-    this.ctx.stroke();
-    this.ctx.restore();
-
-    if (this.gearIcon) {
-      this.ctx.save();
-      this.ctx.globalAlpha = 0.9;
-      this.ctx.drawImage(this.gearIcon, iconX, iconY, size, size);
-      this.ctx.restore();
-      return;
-    }
-
-    this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
-    this.ctx.arc(iconX + size / 2, iconY + size / 2, size / 2 - 4, 0, Math.PI * 2);
-    this.ctx.stroke();
-    for (let i = 0; i < 6; i += 1) {
-      const angle = (i / 6) * Math.PI * 2;
-      const r1 = size / 2 - 2;
-      const r2 = size / 2 + 4;
-      const cx = iconX + size / 2;
-      const cy = iconY + size / 2;
-      this.ctx.beginPath();
-      this.ctx.moveTo(cx + Math.cos(angle) * r1, cy + Math.sin(angle) * r1);
-      this.ctx.lineTo(cx + Math.cos(angle) * r2, cy + Math.sin(angle) * r2);
-      this.ctx.stroke();
-    }
-    this.ctx.restore();
-  }
-
-  private renderSettingsPanel(): void {
-    const layout = this.getSettingsLayout();
-    const { panel, music, sfx, close, closeIcon, handLeft, handRight, fireLeft, fireRight } = layout;
-
-    this.ctx.save();
-    this.ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    this.ctx.fillRect(0, 0, this.viewportSize.x, this.viewportSize.y);
-
-    this.ctx.fillStyle = 'rgba(10,10,10,0.85)';
-    this.drawRoundedRect(this.ctx, panel.x, panel.y, panel.w, panel.h, 16);
-    this.ctx.fill();
-
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    this.ctx.lineWidth = 2;
-    this.ctx.stroke();
-
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.font = `22px ${this.fontFamily}`;
-    this.ctx.textAlign = 'left';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('Settings', panel.x + 20, panel.y + 28);
-
-    this.ctx.font = `16px ${this.fontFamily}`;
-    this.ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    this.ctx.fillText('Music', music.x, music.y - 16);
-    this.ctx.fillText('SFX', sfx.x, sfx.y - 16);
-
-    this.renderSlider(music, this.musicVolume);
-    this.renderSlider(sfx, this.sfxVolume);
-
-    if (this.isTouchDevice()) {
-      this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      this.ctx.font = `15px ${this.fontFamily}`;
-      this.ctx.textAlign = 'left';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText('Controls', panel.x + 20, handLeft.y + handLeft.h / 2);
-      this.ctx.fillText('Tap Fire', panel.x + 20, fireLeft.y + fireLeft.h / 2);
-
-      this.renderOptionButton(handLeft, 'Left', this.touchHandedness === 'left');
-      this.renderOptionButton(handRight, 'Right', this.touchHandedness === 'right');
-      this.renderOptionButton(fireLeft, 'Left', this.touchFireSide === 'left');
-      this.renderOptionButton(fireRight, 'Right', this.touchFireSide === 'right');
-    }
-
-    this.ctx.save();
-    this.ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    this.drawRoundedRect(this.ctx, close.x, close.y, close.w, close.h, 6);
-    this.ctx.fill();
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    this.ctx.lineWidth = 2;
-    this.ctx.stroke();
-    this.ctx.restore();
-
-    if (this.closeIcon) {
-      const iconSize = closeIcon.w;
-      const iconX = closeIcon.x;
-      const iconY = closeIcon.y;
-      this.ctx.save();
-      this.ctx.globalAlpha = 0.9;
-      this.ctx.drawImage(this.closeIcon, iconX, iconY, iconSize, iconSize);
-      this.ctx.restore();
-    } else {
-      this.ctx.fillStyle = 'rgba(255,255,255,0.8)';
-      this.ctx.font = `14px ${this.fontFamily}`;
-      this.ctx.textAlign = 'center';
-      this.ctx.fillText('X', close.x + close.w / 2, close.y + close.h / 2 + 1);
-    }
-
-    this.ctx.restore();
-  }
-
-  private renderSlider(rect: { x: number; y: number; w: number; h: number }, value: number): void {
-    this.ctx.save();
-    this.ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    this.ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    this.ctx.fillStyle = 'rgba(120,196,255,0.9)';
-    this.ctx.fillRect(rect.x, rect.y, rect.w * value, rect.h);
-
-    const knobX = rect.x + rect.w * value;
-    const knobY = rect.y + rect.h / 2;
-    this.ctx.beginPath();
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.arc(knobX, knobY, rect.h * 1.25, 0, Math.PI * 2);
-    this.ctx.fill();
-    this.ctx.restore();
-  }
-
-  private renderOptionButton(rect: { x: number; y: number; w: number; h: number }, label: string, active: boolean): void {
-    this.ctx.save();
-    this.ctx.fillStyle = active ? 'rgba(120,196,255,0.9)' : 'rgba(255,255,255,0.12)';
-    this.drawRoundedRect(this.ctx, rect.x, rect.y, rect.w, rect.h, 6);
-    this.ctx.fill();
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    this.ctx.lineWidth = 2;
-    this.ctx.stroke();
-    this.ctx.fillStyle = active ? '#0b0b0b' : 'rgba(255,255,255,0.85)';
-    this.ctx.font = `14px ${this.fontFamily}`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
-    this.ctx.restore();
-  }
-
-  private getSettingsLayout(): {
-    panel: { x: number; y: number; w: number; h: number };
-    music: { x: number; y: number; w: number; h: number };
-    sfx: { x: number; y: number; w: number; h: number };
-    close: { x: number; y: number; w: number; h: number };
-    closeIcon: { x: number; y: number; w: number; h: number };
-    handLeft: { x: number; y: number; w: number; h: number };
-    handRight: { x: number; y: number; w: number; h: number };
-    fireLeft: { x: number; y: number; w: number; h: number };
-    fireRight: { x: number; y: number; w: number; h: number };
-    cog: { x: number; y: number; w: number; h: number };
-    cogIcon: { x: number; y: number; w: number; h: number };
-  } {
-    const { x: w, y: h } = this.viewportSize;
-    const panelW = 360;
-    const panelH = 300;
-    const panelX = (w - panelW) / 2;
-    const panelY = (h - panelH) / 2;
-    const sliderW = 240;
-    const sliderH = 6;
-    const sliderX = panelX + 60;
-    const musicY = panelY + 90;
-    const sfxY = panelY + 150;
-    const optionButtonW = 110;
-    const optionButtonH = 28;
-    const optionGap = 10;
-    const optionRight = panelX + panelW - 20;
-    const optionLeft = optionRight - optionButtonW * 2 - optionGap;
-    const handedY = panelY + 205 - optionButtonH / 2;
-    const fireY = panelY + 245 - optionButtonH / 2;
-    const closeIconSize = 20;
-    const closeButtonPadding = 8;
-    const closeIconX = panelX + panelW - closeIconSize - 12 - closeButtonPadding;
-    const closeIconY = panelY + 12 + closeButtonPadding;
-    const closeX = closeIconX - closeButtonPadding;
-    const closeY = closeIconY - closeButtonPadding;
-    const closeButtonSize = closeIconSize + closeButtonPadding * 2;
-    const cogSize = 30;
-    const cogPadX = 26;
-    const cogPadY = 24;
-    const cogButtonPadding = 8;
-    const cogIconX = w - cogSize - cogPadX;
-    const cogIconY = cogPadY;
-    const cogX = cogIconX - cogButtonPadding;
-    const cogY = cogIconY - cogButtonPadding;
-    const cogButtonSize = cogSize + cogButtonPadding * 2;
-
+  private getMenuUIState(): MenuUIState {
+    const gcState = this.gameCenterManager.getState();
+    const iapState = this.iapManager.getState();
+    const settings = this.settingsManager.getSettings();
+    const isIOS = Capacitor.getPlatform() === 'ios';
     return {
-      panel: { x: panelX, y: panelY, w: panelW, h: panelH },
-      music: { x: sliderX, y: musicY, w: sliderW, h: sliderH },
-      sfx: { x: sliderX, y: sfxY, w: sliderW, h: sliderH },
-      close: { x: closeX, y: closeY, w: closeButtonSize, h: closeButtonSize },
-      closeIcon: { x: closeIconX, y: closeIconY, w: closeIconSize, h: closeIconSize },
-      handLeft: { x: optionLeft, y: handedY, w: optionButtonW, h: optionButtonH },
-      handRight: { x: optionLeft + optionButtonW + optionGap, y: handedY, w: optionButtonW, h: optionButtonH },
-      fireLeft: { x: optionLeft, y: fireY, w: optionButtonW, h: optionButtonH },
-      fireRight: { x: optionLeft + optionButtonW + optionGap, y: fireY, w: optionButtonW, h: optionButtonH },
-      cog: { x: cogX, y: cogY, w: cogButtonSize, h: cogButtonSize },
-      cogIcon: { x: cogIconX, y: cogIconY, w: cogSize, h: cogSize },
+      viewport: this.viewportSize,
+      fontFamily: this.fontFamily,
+      musicVolume: settings.musicVolume,
+      sfxVolume: settings.sfxVolume,
+      touchHandedness: settings.touchHandedness,
+      touchFireSide: settings.touchFireSide,
+      isIOS,
+      iapAvailable: iapState.available,
+      iapOwned: iapState.owned,
+      iapCanPurchase: iapState.canPurchase ?? false,
+      iapPriceLabel: iapState.price ?? '',
+      iapTitle: iapState.title ?? '',
+      iapIsProcessing: iapState.isProcessing,
+      iapLastError: this.iapMessageTimer > 0 ? iapState.lastError : undefined,
+      iapLastSuccess: this.iapMessageTimer > 0 ? iapState.lastSuccess : undefined,
+      gameCenterAvailable: gcState.available,
+      gameCenterAuthenticated: gcState.authenticated,
+      isTouchDevice: this.isTouchDevice(),
+      gearIcon: this.gearIcon,
+      closeIcon: this.closeIcon,
+      leaderboardIcon: this.leaderboardIcon,
+      cartIcon: this.cartIcon,
     };
   }
 
-  private isWithin(point: Vec2, rect: { x: number; y: number; w: number; h: number }): boolean {
-    return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
+  private handleVolumeChange(kind: 'music' | 'sfx', value: number): void {
+    if (kind === 'music') {
+      this.settingsManager.setMusicVolume(value);
+    } else {
+      this.settingsManager.setSfxVolume(value);
+      const now = performance.now() / 1000;
+      if (now - this.lastSfxPreviewAt >= this.sfxPreviewCooldown) {
+        this.lastSfxPreviewAt = now;
+        this.audio.playSound('start', 0.8);
+      }
+    }
   }
 
   private isTouchDevice(): boolean {
@@ -1374,10 +1155,13 @@ class CH17 extends Engine {
     const alpha = Math.min(1, this.touchHintTimer / 1.0);
 
     const stickWidth = w * this.touchLeftRegionRatio;
-    const stickStart = this.touchHandedness === 'left' ? w - stickWidth : 0;
-    const stickEnd = this.touchHandedness === 'left' ? w : stickWidth;
-    const actionStart = this.touchHandedness === 'left' ? 0 : stickEnd;
-    const actionEnd = this.touchHandedness === 'left' ? stickStart : w;
+    const maxActionWidth = Math.max(0, w - stickWidth);
+    const actionWidth = Math.min(w * this.touchActionRegionRatio, maxActionWidth);
+    const handedness = this.settingsManager.touchHandedness;
+    const stickStart = handedness === 'left' ? w - stickWidth : 0;
+    const stickEnd = handedness === 'left' ? w : stickWidth;
+    const actionStart = handedness === 'left' ? 0 : w - actionWidth;
+    const actionEnd = handedness === 'left' ? actionWidth : w;
     const actionMid = actionStart + (actionEnd - actionStart) * 0.5;
 
     const yLine = h * 0.78;
@@ -1408,7 +1192,7 @@ class CH17 extends Engine {
     // Tap zones for thrust/fire
     const leftTapX = actionStart + (actionMid - actionStart) / 2;
     const rightTapX = actionMid + (actionEnd - actionMid) / 2;
-    const fireLeft = this.touchFireSide === 'left';
+    const fireLeft = this.settingsManager.touchFireSide === 'left';
     const fireX = fireLeft ? leftTapX : rightTapX;
     const thrustX = fireLeft ? rightTapX : leftTapX;
 
@@ -1482,8 +1266,8 @@ class CH17 extends Engine {
       onWaveStart: (wave, seed, asteroidCount, enemyCount) => {
         setSeed(seed);
         this.buildAsteroidSpawnPlan(asteroidCount ?? 0);
-        this.buildEnemySpawnPlan(enemyCount ?? 0, wave);
-        this.setWaveTheme(wave);
+        this.buildEnemySpawnPlan(enemyCount ?? 0);
+        this.themeManager.setWaveTheme(wave);
       },
     });
 
@@ -1513,98 +1297,25 @@ class CH17 extends Engine {
       deadzone: 0.22,
       alpha: 0.6,
       leftRegionRatio: this.touchLeftRegionRatio,
+      actionRegionRatio: this.touchActionRegionRatio,
       stickRadius: 90,
       knobRadius: 38,
       showStickVisuals: false,
-      handedness: this.touchHandedness,
-      fireSide: this.touchFireSide,
+      handedness: this.settingsManager.touchHandedness,
+      fireSide: this.settingsManager.touchFireSide,
       scaleProvider: () => Math.max(1, 1 / this.renderScale),
     });
 
     this.addUILayer(this.touchControls);
   }
 
-  private applyTouchControlsOptions(): void {
-    this.touchControls?.setHandedness(this.touchHandedness);
-    this.touchControls?.setFireSide(this.touchFireSide);
+  private async submitGameCenterScore(): Promise<void> {
+    const score = this.scoreSystem.getScore();
+    await this.gameCenterManager.submitScore(score);
   }
 
-  private getTouchHintSignature(): string {
-    return JSON.stringify({
-      handedness: this.touchHandedness,
-      fireSide: this.touchFireSide,
-      leftRegionRatio: this.touchLeftRegionRatio,
-    });
-  }
-
-  private async loadPreferences(): Promise<void> {
-    try {
-      const stored = await Preferences.get({ key: this.settingsStorageKey });
-      if (!stored.value) {
-        this.audio.setMusicVolume(this.musicVolume);
-        this.audio.setSfxVolume(this.sfxVolume);
-        this.applyTouchControlsOptions();
-        return;
-      }
-
-      const data = JSON.parse(stored.value) as Partial<{
-        musicVolume: number;
-        sfxVolume: number;
-        touchHandedness: 'left' | 'right';
-        touchFireSide: 'left' | 'right';
-        touchHintShown: boolean;
-        touchHintSignature: string;
-      }>;
-
-      if (typeof data.musicVolume === 'number') {
-        this.musicVolume = Math.max(0, Math.min(1, data.musicVolume));
-      }
-      if (typeof data.sfxVolume === 'number') {
-        this.sfxVolume = Math.max(0, Math.min(1, data.sfxVolume));
-      }
-      if (data.touchHandedness === 'left' || data.touchHandedness === 'right') {
-        this.touchHandedness = data.touchHandedness;
-      }
-      if (data.touchFireSide === 'left' || data.touchFireSide === 'right') {
-        this.touchFireSide = data.touchFireSide;
-      }
-      if (typeof data.touchHintShown === 'boolean') {
-        this.touchHintShown = data.touchHintShown;
-      }
-      if (typeof data.touchHintSignature === 'string') {
-        this.touchHintSignature = data.touchHintSignature;
-      }
-
-      const currentSignature = this.getTouchHintSignature();
-      if (this.touchHintSignature !== currentSignature) {
-        this.touchHintShown = false;
-        this.touchHintSignature = currentSignature;
-      }
-
-      this.audio.setMusicVolume(this.musicVolume);
-      this.audio.setSfxVolume(this.sfxVolume);
-      this.applyTouchControlsOptions();
-    } catch {
-      this.audio.setMusicVolume(this.musicVolume);
-      this.audio.setSfxVolume(this.sfxVolume);
-      this.applyTouchControlsOptions();
-    }
-  }
-
-  private async savePreferences(): Promise<void> {
-    const payload = JSON.stringify({
-      musicVolume: this.musicVolume,
-      sfxVolume: this.sfxVolume,
-      touchHandedness: this.touchHandedness,
-      touchFireSide: this.touchFireSide,
-      touchHintShown: this.touchHintShown,
-      touchHintSignature: this.getTouchHintSignature(),
-    });
-    try {
-      await Preferences.set({ key: this.settingsStorageKey, value: payload });
-    } catch {
-      // Ignore persistence errors on unsupported platforms
-    }
+  private async handleLeaderboardPress(): Promise<void> {
+    await this.gameCenterManager.showLeaderboard();
   }
 
   private updateWorldDuringRespawn(deltaTime: number): void {
@@ -1638,10 +1349,12 @@ class CH17 extends Engine {
 
   private resetGame(): void {
     setSeed(this.seed);
-    this.enemySpawnPlan = [];
-    this.enemySpawnPlanIndex = 0;
-    this.asteroidSpawnPlan = [];
-    this.asteroidSpawnPlanIndex = 0;
+    this.spawnManager = new SpawnManager({
+      worldSize: this.worldSize,
+      getPlayerPosition: () => this.player?.position ?? { x: this.worldSize.x / 2, y: this.worldSize.y / 2 },
+      getEnemies: () => this.enemies,
+      getAsteroids: () => this.asteroids,
+    });
     this.lives = 3;
     this.shieldEnergy = 1;
     this.shieldActive = false;
@@ -1713,7 +1426,7 @@ class CH17 extends Engine {
     }
 
     // Create boss configuration based on wave
-    const bossConfig = this.createBossConfig(wave, bossTier, sprite);
+    const bossConfig = this.bossFactory.createBossConfig(wave, bossTier, sprite);
 
     // Create the new BossV2 instance
     const viewBounds = this.getCameraViewBounds();
@@ -1759,236 +1472,6 @@ class CH17 extends Engine {
     this.addEntity(bossV2);
   }
 
-  private createBossConfig(wave: number, tier: number, sprite: HTMLImageElement): BossConfig {
-    const baseHealth = 12 + Math.floor(wave / 2) * 2;
-
-    // Create different boss configurations based on tier
-    switch (tier) {
-      case 0: // Wave 5 - The Guardian
-        return {
-          name: "The Guardian",
-          tier: 0,
-          maxHealth: baseHealth,
-          radius: 70,
-          sprite,
-          phases: [
-            {
-              healthThreshold: 1.0,
-              name: "Defensive",
-              attacks: [
-                { type: "laser", interval: 3.0, count: 1 }
-              ],
-              movementPattern: { type: "patrol", amplitude: 200, speed: 0.6 }
-            },
-            {
-              healthThreshold: 0.75,
-              name: "Alert",
-              attacks: [
-                { type: "laser", interval: 2.5, count: 2, spread: 0.2 },
-                { type: "burst", interval: 8.0, bullets: 8 }
-              ],
-              movementPattern: { type: "patrol", amplitude: 250, speed: 0.8 }
-            },
-            {
-              healthThreshold: 0.4,
-              name: "Desperate",
-              attacks: [
-                { type: "laser", interval: 2.0, count: 3, spread: 0.3 },
-                { type: "burst", interval: 5.0, bullets: 12 },
-                { type: "wave", interval: 7.0, width: 150, speed: 200 }
-              ],
-              movementPattern: { type: "strafe", amplitude: 280, speed: 1.0, verticalAmplitude: 60 }
-            }
-          ]
-        };
-
-      case 1: // Wave 10 - The Hunter
-        return {
-          name: "The Hunter",
-          tier: 1,
-          maxHealth: baseHealth,
-          radius: 65,
-          sprite,
-          phases: [
-            {
-              healthThreshold: 1.0,
-              name: "Stalking",
-              attacks: [
-                { type: "laser", interval: 2.5, count: 2, spread: 0.15 },
-                { type: "missile", interval: 4.0, count: 1 }
-              ],
-              movementPattern: { type: "strafe", amplitude: 300, speed: 0.9, verticalAmplitude: 80 }
-            },
-            {
-              healthThreshold: 0.6,
-              name: "Pursuing",
-              attacks: [
-                { type: "laser", interval: 2.0, count: 3, spread: 0.25 },
-                { type: "missile", interval: 3.0, count: 2 },
-                { type: "burst", interval: 5.0, bullets: 8 }
-              ],
-              movementPattern: { type: "aggressive", speed: 100, dodgeRadius: 200 }
-            },
-            {
-              healthThreshold: 0.3,
-              name: "Frenzy",
-              attacks: [
-                { type: "spiral", interval: 0.1, arms: 3, rotationSpeed: 0.1 },
-                { type: "missile", interval: 2.0, count: 3 },
-                { type: "burst", interval: 4.0, bullets: 16 }
-              ],
-              movementPattern: { type: "dash", dashSpeed: 180, dashDuration: 1.0, dashCooldown: 3.5, chaseSpeed: 90 }
-            }
-          ]
-        };
-
-      case 2: // Wave 15 - The Destroyer
-        return {
-          name: "The Destroyer",
-          tier: 2,
-          maxHealth: baseHealth + 10,
-          radius: 75,
-          sprite,
-          phases: [
-            {
-              healthThreshold: 1.0,
-              name: "Warming Up",
-              attacks: [
-                { type: "laser", interval: 2.2, count: 2, spread: 0.2 },
-                { type: "missile", interval: 3.5, count: 2 },
-                { type: "wave", interval: 6.0, width: 200, speed: 250 }
-              ],
-              movementPattern: { type: "orbit", radius: 240, speed: 1.2 }
-            },
-            {
-              healthThreshold: 0.7,
-              name: "Destruction Mode",
-              attacks: [
-                { type: "beam", chargeTime: 2.0, duration: 2.0, sweepAngle: 0.5, interval: 8.0 },
-                { type: "laser", interval: 1.8, count: 4, spread: 0.3 },
-                { type: "missile", interval: 2.5, count: 3 }
-              ],
-              movementPattern: { type: "defensive", retreatDistance: 300, strafeSpeed: 80 }
-            },
-            {
-              healthThreshold: 0.35,
-              name: "Overload",
-              attacks: [
-                { type: "beam", chargeTime: 1.5, duration: 3.0, sweepAngle: 1.0, interval: 6.0 },
-                { type: "shockwave", interval: 5.0, rings: 3 },
-                { type: "spiral", interval: 0.08, arms: 4, rotationSpeed: 0.15 },
-                { type: "minions", interval: 10.0, count: 3 }
-              ],
-              movementPattern: { type: "spiral", radius: 200, speed: 1.0, expansion: 100 }
-            }
-          ]
-        };
-
-      case 3: // Wave 20 - The Vanguard
-        return {
-          name: "The Vanguard",
-          tier: 3,
-          maxHealth: baseHealth + 15,
-          radius: 70,
-          sprite,
-          phases: [
-            {
-              healthThreshold: 1.0,
-              name: "Tactical",
-              attacks: [
-                { type: "laser", interval: 2.0, count: 3, spread: 0.2 },
-                { type: "missile", interval: 3.0, count: 2 },
-                { type: "minions", interval: 8.0, count: 2 }
-              ],
-              movementPattern: { type: "teleport", interval: 4.0, telegraphTime: 1.0 }
-            },
-            {
-              healthThreshold: 0.65,
-              name: "Blitz",
-              attacks: [
-                { type: "laser", interval: 1.5, count: 5, spread: 0.4 },
-                { type: "missile", interval: 2.0, count: 4 },
-                { type: "burst", interval: 4.0, bullets: 20 },
-                { type: "minions", interval: 8.0, count: 2 }
-              ],
-              movementPattern: { type: "aggressive", speed: 120, dodgeRadius: 180 }
-            },
-            {
-              healthThreshold: 0.3,
-              name: "Last Stand",
-              attacks: [
-                { type: "beam", chargeTime: 1.0, duration: 2.0, sweepAngle: 0.8, interval: 5.0 },
-                { type: "shockwave", interval: 4.0, rings: 2 },
-                { type: "spiral", interval: 0.06, arms: 6, rotationSpeed: 0.2 },
-                { type: "wave", interval: 3.0, width: 300, speed: 300 }
-              ],
-              movementPattern: { type: "dash", dashSpeed: 200, dashDuration: 1.1, dashCooldown: 3.0, chaseSpeed: 100 }
-            }
-          ]
-        };
-
-      default: // Wave 25+ - The Overlord (Final Boss)
-        return {
-          name: "The Overlord",
-          tier: 5,
-          maxHealth: 80,
-          radius: 85,
-          sprite,
-          phases: [
-            {
-              healthThreshold: 1.0,
-              name: "Awakening",
-              attacks: [
-                { type: "laser", interval: 1.8, count: 4, spread: 0.25 },
-                { type: "missile", interval: 2.5, count: 3 },
-                { type: "wave", interval: 5.0, width: 250, speed: 280 }
-              ],
-              movementPattern: { type: "patrol", amplitude: 320, speed: 0.9 },
-              color: "#ff0000"
-            },
-            {
-              healthThreshold: 0.75,
-              name: "Unleashed",
-              attacks: [
-                { type: "beam", chargeTime: 2.0, duration: 2.5, sweepAngle: 0.6, interval: 7.0 },
-                { type: "laser", interval: 1.5, count: 5, spread: 0.35 },
-                { type: "missile", interval: 2.0, count: 4 },
-                { type: "burst", interval: 5.0, bullets: 24 }
-              ],
-              movementPattern: { type: "teleport", interval: 3.5, telegraphTime: 0.8 },
-              color: "#ff00ff"
-            },
-            {
-              healthThreshold: 0.5,
-              name: "Apocalypse",
-              attacks: [
-                { type: "beam", chargeTime: 1.5, duration: 3.0, sweepAngle: 1.2, interval: 6.0 },
-                { type: "spiral", interval: 0.05, arms: 8, rotationSpeed: 0.25 },
-                { type: "shockwave", interval: 4.0, rings: 4 },
-                { type: "minions", interval: 7.0, count: 4 },
-                { type: "missile", interval: 1.5, count: 5 }
-              ],
-              movementPattern: { type: "aggressive", speed: 140, dodgeRadius: 160 },
-              color: "#ffff00"
-            },
-            {
-              healthThreshold: 0.25,
-              name: "Desperation",
-              attacks: [
-                { type: "beam", chargeTime: 1.0, duration: 4.0, sweepAngle: 2.0, interval: 5.0 },
-                { type: "spiral", interval: 0.03, arms: 12, rotationSpeed: 0.3 },
-                { type: "burst", interval: 2.0, bullets: 32 },
-                { type: "wave", interval: 2.0, width: 400, speed: 350 },
-                { type: "shockwave", interval: 3.0, rings: 5 },
-                { type: "minions", interval: 5.0, count: 6 }
-              ],
-              movementPattern: { type: "spiral", radius: 250, speed: 1.5, expansion: 150 },
-              color: "#00ffff"
-            }
-          ]
-        };
-    }
-  }
 
   private getAsteroidPositions(): Vec2[] {
     if (!this.asteroidsCacheValid) {
@@ -2031,10 +1514,7 @@ class CH17 extends Engine {
   private spawnEnemyAtRandom(): void {
     const wave = this.waveSystem?.currentWave ?? 1;
     const enemyTypes = this.getEnemyTypesForWave(wave);
-    const plan = this.enemySpawnPlan[this.enemySpawnPlanIndex++];
-    const spawn = plan
-      ? { x: plan.x, y: plan.y }
-      : this.getPlannedSpawnPosition(120, this.minEnemySpawnDistance);
+    const spawn = this.spawnManager.getNextEnemySpawnPosition(this.minEnemySpawnDistance);
 
     // No enemies available for this wave
     if (enemyTypes.length === 0) return;
@@ -2161,64 +1641,20 @@ class CH17 extends Engine {
 
 
   private spawnAsteroidAtRandom(size: AsteroidSize): void {
-    const plan = this.asteroidSpawnPlan[this.asteroidSpawnPlanIndex++];
-    const spawn = plan
-      ? { x: plan.x, y: plan.y }
-      : this.getPlannedSpawnPosition(160, 240);
-    const x = spawn.x;
-    const y = spawn.y;
-    this.addAsteroid(new Asteroid({ x, y }, size, this.onAsteroidDestroyed, this.asteroidSprite, this.sprites.asteroids as any));
+    const spawn = this.spawnManager.getNextAsteroidSpawnPosition();
+    this.addAsteroid(new Asteroid(spawn, size, this.onAsteroidDestroyed, this.asteroidSprite, this.sprites.asteroids as any));
   }
 
-  private buildEnemySpawnPlan(enemyCount: number, _wave: number): void {
-    this.enemySpawnPlan = [];
-    this.enemySpawnPlanIndex = 0;
-
-    for (let i = 0; i < enemyCount; i += 1) {
-      const spawn = this.getPlannedSpawnPosition(120, this.minEnemySpawnDistance);
-      this.enemySpawnPlan.push({ kind: 'single', x: spawn.x, y: spawn.y, typeIndex: 0 });
-    }
+  private buildEnemySpawnPlan(enemyCount: number): void {
+    this.spawnManager.buildEnemySpawnPlan(enemyCount, this.minEnemySpawnDistance);
   }
 
   private buildAsteroidSpawnPlan(asteroidCount: number): void {
-    this.asteroidSpawnPlan = [];
-    this.asteroidSpawnPlanIndex = 0;
-    for (let i = 0; i < asteroidCount; i += 1) {
-      const spawn = this.getPlannedSpawnPosition(160, 240);
-      this.asteroidSpawnPlan.push(spawn);
-    }
-  }
-
-  private getPlannedSpawnPosition(margin: number, minDistance: number): { x: number; y: number } {
-    let x = margin + random() * (this.worldSize.x - margin * 2);
-    let y = margin + random() * (this.worldSize.y - margin * 2);
-    const playerPos = this.player?.position ?? { x: this.worldSize.x / 2, y: this.worldSize.y / 2 };
-    for (let i = 0; i < 10; i++) {
-      x = margin + random() * (this.worldSize.x - margin * 2);
-      y = margin + random() * (this.worldSize.y - margin * 2);
-      const dx = x - playerPos.x;
-      const dy = y - playerPos.y;
-      if (Math.hypot(dx, dy) >= minDistance) {
-        break;
-      }
-    }
-    return { x, y };
+    this.spawnManager.buildAsteroidSpawnPlan(asteroidCount);
   }
 
   private getSafeSpawnPosition(): Vec2 {
-    const margin = 200;
-    let best: Vec2 = { x: this.worldSize.x / 2, y: this.worldSize.y / 2 };
-    for (let i = 0; i < 20; i++) {
-      const x = margin + random() * (this.worldSize.x - margin * 2);
-      const y = margin + random() * (this.worldSize.y - margin * 2);
-      const safeFromEnemies = this.enemies.every((e) => Math.hypot(e.position.x - x, e.position.y - y) > 260);
-      const safeFromAsteroids = this.asteroids.every((a) => Math.hypot(a.position.x - x, a.position.y - y) > 220);
-      if (safeFromEnemies && safeFromAsteroids) {
-        return { x, y };
-      }
-      best = { x, y };
-    }
-    return best;
+    return this.spawnManager.getSafeSpawnPosition();
   }
 
 

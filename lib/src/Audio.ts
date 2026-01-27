@@ -7,7 +7,9 @@ export class AudioManager {
   private buffers = new Map<string, AudioBuffer>();
   private musicSource?: AudioBufferSourceNode;
   private musicGain?: GainNode;
-  private loopSources = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
+  private loopSources = new Map<string, { source: AudioBufferSourceNode; gain: GainNode; volume: number }>();
+  private musicVolume: number = 0.6;
+  private sfxVolume: number = 1;
 
   constructor() {
     this.ctx = new AudioContext();
@@ -44,21 +46,24 @@ export class AudioManager {
     const source = this.ctx.createBufferSource();
     const gain = this.ctx.createGain();
     source.buffer = buffer;
-    gain.gain.value = volume;
+    gain.gain.value = volume * this.sfxVolume;
     source.connect(gain).connect(this.ctx.destination);
     source.start(0);
   }
 
-  playMusic(key: string, volume: number = 0.6): void {
+  playMusic(key: string, volume?: number): void {
     const buffer = this.buffers.get(key);
     if (!buffer) return;
     this.stopMusic();
+
+    const resolvedVolume = volume ?? this.musicVolume;
 
     const source = this.ctx.createBufferSource();
     const gain = this.ctx.createGain();
     source.buffer = buffer;
     source.loop = true;
-    gain.gain.value = volume;
+    this.musicVolume = resolvedVolume;
+    gain.gain.value = resolvedVolume;
     source.connect(gain).connect(this.ctx.destination);
     source.start(0);
 
@@ -76,8 +81,16 @@ export class AudioManager {
   }
 
   setMusicVolume(volume: number): void {
+    this.musicVolume = volume;
     if (this.musicGain) {
       this.musicGain.gain.value = volume;
+    }
+  }
+
+  setSfxVolume(volume: number): void {
+    this.sfxVolume = volume;
+    for (const entry of this.loopSources.values()) {
+      entry.gain.gain.value = entry.volume * this.sfxVolume;
     }
   }
 
@@ -89,10 +102,10 @@ export class AudioManager {
     const gain = this.ctx.createGain();
     source.buffer = buffer;
     source.loop = true;
-    gain.gain.value = volume;
+    gain.gain.value = volume * this.sfxVolume;
     source.connect(gain).connect(this.ctx.destination);
     source.start(0);
-    this.loopSources.set(key, { source, gain });
+    this.loopSources.set(key, { source, gain, volume });
   }
 
   stopLoop(key: string): void {
