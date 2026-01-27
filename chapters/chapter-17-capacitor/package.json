@@ -17,6 +17,9 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
-    "@capacitor/preferences": "^8.0.0"
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/preferences": "^8.0.0",
+    "capacitor-game-center": "file:../../plugins/game-center",
+    "cordova-plugin-purchase": "^13.12.1"
   }
 }

@@ -9,6 +9,7 @@ export type DynamicTouchControlsOptions = {
   deadzone?: number;
   alpha?: number;
   leftRegionRatio?: number;
+  actionRegionRatio?: number;
   stickRadius?: number;
   knobRadius?: number;
   showStickVisuals?: boolean;
@@ -32,6 +33,7 @@ export class DynamicTouchControls extends UILayer {
   private deadzone: number;
   private alpha: number;
   private leftRegionRatio: number;
+  private actionRegionRatio: number;
   private stickRadius: number;
   private knobRadius: number;
   private showStickVisuals: boolean;
@@ -74,6 +76,7 @@ export class DynamicTouchControls extends UILayer {
     this.deadzone = opts.deadzone ?? 0.25;
     this.alpha = opts.alpha ?? 0.6;
     this.leftRegionRatio = opts.leftRegionRatio ?? 0.5;
+    this.actionRegionRatio = opts.actionRegionRatio ?? 0.33;
     this.stickRadius = opts.stickRadius ?? 84;
     this.knobRadius = opts.knobRadius ?? 36;
     this.showStickVisuals = opts.showStickVisuals ?? true;
@@ -311,14 +314,21 @@ export class DynamicTouchControls extends UILayer {
 
   private getRegions(): { stickStart: number; stickEnd: number; actionStart: number; actionEnd: number } {
     const stickWidth = this.viewport.x * this.leftRegionRatio;
+    const maxActionWidth = Math.max(0, this.viewport.x - stickWidth);
+    const actionWidth = Math.min(this.viewport.x * this.actionRegionRatio, maxActionWidth);
+
     if (this.handedness === "left") {
       const stickStart = this.viewport.x - stickWidth;
       const stickEnd = this.viewport.x;
-      return { stickStart, stickEnd, actionStart: 0, actionEnd: stickStart };
+      const actionStart = 0;
+      const actionEnd = actionWidth;
+      return { stickStart, stickEnd, actionStart, actionEnd };
     }
 
     const stickStart = 0;
     const stickEnd = stickWidth;
-    return { stickStart, stickEnd, actionStart: stickEnd, actionEnd: this.viewport.x };
+    const actionEnd = this.viewport.x;
+    const actionStart = actionEnd - actionWidth;
+    return { stickStart, stickEnd, actionStart, actionEnd };
   }
 }

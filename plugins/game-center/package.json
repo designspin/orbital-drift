@@ -1,0 +1,41 @@
+{
+  "name": "capacitor-game-center",
+  "version": "0.0.1",
+  "description": "Local Capacitor Game Center plugin",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/definitions.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "ios/",
+    "src/"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "gamecenter"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

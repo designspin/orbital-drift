@@ -1,28 +1,46 @@
 PODS:
   - Capacitor (8.0.1):
     - CapacitorCordova
+  - CapacitorApp (8.0.0):
+    - Capacitor
   - CapacitorCordova (8.0.1)
+  - CapacitorGameCenter (0.0.1):
+    - Capacitor
   - CapacitorPreferences (8.0.0):
     - Capacitor
+  - CordovaPlugins (7.4.5):
+    - CapacitorCordova
 
 DEPENDENCIES:
   - "Capacitor (from `../../../../node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../../../node_modules/@capacitor/app`)"
   - "CapacitorCordova (from `../../../../node_modules/@capacitor/ios`)"
+  - CapacitorGameCenter (from `../../../../plugins/game-center`)
   - "CapacitorPreferences (from `../../../../node_modules/@capacitor/preferences`)"
+  - CordovaPlugins (from `../capacitor-cordova-ios-plugins`)
 
 EXTERNAL SOURCES:
   Capacitor:
     :path: "../../../../node_modules/@capacitor/ios"
+  CapacitorApp:
+    :path: "../../../../node_modules/@capacitor/app"
   CapacitorCordova:
     :path: "../../../../node_modules/@capacitor/ios"
+  CapacitorGameCenter:
+    :path: "../../../../plugins/game-center"
   CapacitorPreferences:
     :path: "../../../../node_modules/@capacitor/preferences"
+  CordovaPlugins:
+    :path: "../capacitor-cordova-ios-plugins"
 
 SPEC CHECKSUMS:
   Capacitor: ff35b0f66370b84aa238251b35b91886a3207c16
+  CapacitorApp: 3963a84197280757b84f126afd1520a85ae3b092
   CapacitorCordova: 0d65b9bb74e995dcecb9463f34f1af2aba6f955c
+  CapacitorGameCenter: 4388fb2b83aaec088bdef6496a7dab8ac7f29ed5
   CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
+  CordovaPlugins: 4e4b10b11bd2b55de8912c6d5459f0904c0c2864
 
-PODFILE CHECKSUM: c32644dd985609500ac8e510f42f8ac1962938f9
+PODFILE CHECKSUM: 0eb57bfa093acf81c604c4110adfa0ef11ae742e
 
 COCOAPODS: 1.16.2
