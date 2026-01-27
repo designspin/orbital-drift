@@ -1,11 +1,13 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  title: 'Canvas TS Engine',
-  description: 'A hands-on book building a canvas game engine in TypeScript.',
+  title: 'Orbital Drift',
+  description: 'Space arcade shooter - battle through endless waves and epic boss fights.',
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Tutorial', link: '/00-intro/' },
+      { text: 'Support', link: '/support' },
     ],
     sidebar: [
       { text: 'Introduction', link: '/00-intro/' },

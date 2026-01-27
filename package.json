@@ -22,6 +22,12 @@
     "dev:ch14": "npm run dev -w chapters/chapter-14-architecture",
     "dev:ch15": "npm run dev -w chapters/chapter-15-mobile",
     "dev:ch16": "npm run dev -w chapters/chapter-16-actions",
-    "dev:ch17": "npm run dev -w chapters/chapter-17-capacitor"
+    "dev:ch17": "npm run dev -w chapters/chapter-17-capacitor",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
   }
 }

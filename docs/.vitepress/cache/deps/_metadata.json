@@ -1,25 +1,31 @@
 {
-  "hash": "5a663d15",
-  "configHash": "f065b0b8",
-  "lockfileHash": "f99edd83",
-  "browserHash": "1168566d",
+  "hash": "690959ce",
+  "configHash": "aef14d73",
+  "lockfileHash": "c00af97d",
+  "browserHash": "30b6512a",
   "optimized": {
     "vue": {
       "src": "../../../../node_modules/vue/dist/vue.runtime.esm-bundler.js",
       "file": "vue.js",
-      "fileHash": "aa9a1a48",
+      "fileHash": "15f10cb9",
       "needsInterop": false
     },
     "vitepress > @vue/devtools-api": {
       "src": "../../../../node_modules/@vue/devtools-api/dist/index.js",
       "file": "vitepress___@vue_devtools-api.js",
-      "fileHash": "71c0851f",
+      "fileHash": "9de0ae22",
       "needsInterop": false
     },
     "vitepress > @vueuse/core": {
       "src": "../../../../node_modules/@vueuse/core/index.mjs",
       "file": "vitepress___@vueuse_core.js",
-      "fileHash": "0ae1fda5",
+      "fileHash": "f6b832a8",
+      "needsInterop": false
+    },
+    "@capacitor/core": {
+      "src": "../../../../node_modules/@capacitor/core/dist/index.js",
+      "file": "@capacitor_core.js",
+      "fileHash": "cc890167",
       "needsInterop": false
     }
   },
