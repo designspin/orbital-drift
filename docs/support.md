@@ -14,4 +14,4 @@
 
 ## Contact
 
-Need help or found a bug? [Open an issue on GitHub](https://github.com/YOUR_USERNAME/canvas-ts-course/issues)
+Need help or found a bug? [Open an issue on GitHub](https://github.com/designspin/orbital-drift/issues)
