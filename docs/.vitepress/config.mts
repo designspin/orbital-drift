@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  base: '/orbital-drift/',
   title: 'Orbital Drift',
   description: 'Space arcade shooter - battle through endless waves and epic boss fights.',
   themeConfig: {
