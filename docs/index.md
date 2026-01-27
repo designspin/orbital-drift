@@ -36,12 +36,14 @@ features:
 ### Controls
 
 **Touch (Mobile):**
-- Left side of screen: Move ship
-- Right side of screen: Fire
-- Hold anywhere: Activate shield
+- Left side: Turn (virtual stick)
+- Right side: Fire and Thrust buttons
+- Swipe right: Toggle shield
+- Handedness can be swapped in Settings
 
 **Keyboard (Desktop):**
-- Arrow keys or WASD: Turn and thrust
+- Left/Right arrows or A/D: Turn
+- Up arrow or W: Thrust
 - Space or X: Fire
 - Down arrow, S, or Z: Shield
 
