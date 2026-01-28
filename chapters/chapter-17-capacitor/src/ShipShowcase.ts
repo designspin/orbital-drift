@@ -218,7 +218,6 @@ export class ShipShowcase {
         "",
         "Doomed Track - Alexander Ehlers",
         "Flags Track - Alexander Ehlers",
-        "Source: opengameart.org",
       ],
       description: [],
       stats: []
