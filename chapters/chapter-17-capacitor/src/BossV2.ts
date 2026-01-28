@@ -48,7 +48,8 @@ export class BossV2 extends Entity implements CircleCollider {
   radius: number;
   colliderType: "circle" = "circle";
   layer: number = CollisionLayer.Enemy;
-  mask: number = CollisionLayer.Player | CollisionLayer.PlayerBullet;
+  // Start with no collision mask - enabled after entry animation completes
+  mask: number = 0;
 
   // Core properties
   private name: string;
@@ -62,6 +63,8 @@ export class BossV2 extends Entity implements CircleCollider {
   private currentPhaseIndex: number = 0;
   private enterY: number = 160;
   private hasEntered: boolean = false;
+  private postEntryGraceTimer: number = 0;
+  private postEntryGraceDuration: number = 1.5; // Brief pause after entry before attacking
 
   // Phase management
   private phaseTransitioning: boolean = false;
@@ -87,10 +90,11 @@ export class BossV2 extends Entity implements CircleCollider {
   private phaseGlowIntensity: number = 0;
   private telegraphAlpha: number = 0;
   private currentTelegraph?: { type: string; position: Vec2; data: any };
+  private teleportFadeAlpha: number = 1; // For teleport fade in/out effect
 
   // Death animation
   private isDying: boolean = false;
-  private deathDuration: number = 10; // Epic 10-second death with explosions and slow fade!
+  private deathDuration: number = 5; // Dramatic 5-second death with explosions!
   private deathTimer: number = 0;
   private deathBurstTimer: number = 0;
   private deathSmokeTimer: number = 0;
@@ -113,6 +117,8 @@ export class BossV2 extends Entity implements CircleCollider {
   private onDestroyed?: (position: Vec2) => void;
   private onDeathBurst?: (position: Vec2) => void;
   private onDeathSmoke?: (position: Vec2, alpha: number) => void;
+  private onBeamHit?: (beamStart: Vec2, beamAngle: number, beamLength: number, beamWidth: number) => void;
+  private onDeathStart?: (position: Vec2) => void;
 
   constructor(
     config: BossConfig,
@@ -128,6 +134,8 @@ export class BossV2 extends Entity implements CircleCollider {
       onDestroyed?: (position: Vec2) => void;
       onDeathBurst?: (position: Vec2) => void;
       onDeathSmoke?: (position: Vec2, alpha: number) => void;
+      onBeamHit?: (beamStart: Vec2, beamAngle: number, beamLength: number, beamWidth: number) => void;
+      onDeathStart?: (position: Vec2) => void;
     }
   ) {
     super(position);
@@ -155,6 +163,8 @@ export class BossV2 extends Entity implements CircleCollider {
     this.onDestroyed = callbacks?.onDestroyed;
     this.onDeathBurst = callbacks?.onDeathBurst;
     this.onDeathSmoke = callbacks?.onDeathSmoke;
+    this.onBeamHit = callbacks?.onBeamHit;
+    this.onDeathStart = callbacks?.onDeathStart;
 
     // Pre-cache flash sprite
     if (this.sprite) {
@@ -193,6 +203,15 @@ export class BossV2 extends Entity implements CircleCollider {
     // Handle phase transitions
     if (this.phaseTransitioning) {
       this.updatePhaseTransition(deltaTime);
+      return;
+    }
+
+    // Handle post-entry grace period (boss settles before attacking)
+    if (this.postEntryGraceTimer > 0) {
+      this.postEntryGraceTimer = Math.max(0, this.postEntryGraceTimer - deltaTime);
+      // During grace period, only do gentle patrol movement, no attacks
+      const target = this.getTarget();
+      this.angle = (Math.atan2(target.y - this.position.y, target.x - this.position.x) * 180) / Math.PI;
       return;
     }
 
@@ -237,6 +256,9 @@ export class BossV2 extends Entity implements CircleCollider {
       this.position.y = Math.min(targetEnterY, this.position.y + 140 * deltaTime);
     } else {
       this.hasEntered = true;
+      this.postEntryGraceTimer = this.postEntryGraceDuration;
+      // Enable collision only after entry is complete
+      this.mask = CollisionLayer.Player | CollisionLayer.PlayerBullet;
       if (viewBounds) {
         this.patrolAnchor = { x: viewBounds.x + viewBounds.w / 2, y: targetEnterY };
       } else {
@@ -248,31 +270,44 @@ export class BossV2 extends Entity implements CircleCollider {
 
   private updateDeathAnimation(deltaTime: number): void {
     this.deathTimer = Math.max(0, this.deathTimer - deltaTime);
+    const progress = 1 - (this.deathTimer / this.deathDuration); // 0 to 1
     this.deathAlpha = Math.max(0, this.deathTimer / this.deathDuration);
 
     // Stop all movement during death - boss should die in place
     // No position changes during death animation!
 
-    // Burst effects
+    // Burst effects - more frequent and intense as death progresses
     this.deathBurstTimer -= deltaTime;
+    // Start slow, get faster: 0.15s -> 0.03s as progress goes 0 -> 1
+    const burstInterval = 0.15 - progress * 0.12 + Math.random() * 0.08;
     if (this.deathBurstTimer <= 0) {
-      this.deathBurstTimer = 0.08 + Math.random() * 0.18;
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * this.radius * 0.9;
-      const burstPos = {
-        x: this.position.x + Math.cos(angle) * radius,
-        y: this.position.y + Math.sin(angle) * radius,
-      };
-      this.onDeathBurst?.(burstPos);
+      this.deathBurstTimer = burstInterval;
+
+      // More bursts per tick as we progress (1-3 bursts)
+      const burstCount = 1 + Math.floor(progress * 2);
+      for (let i = 0; i < burstCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        // Explosions spread wider as death progresses
+        const spreadFactor = 0.5 + progress * 0.8;
+        const radius = Math.random() * this.radius * spreadFactor;
+        const burstPos = {
+          x: this.position.x + Math.cos(angle) * radius,
+          y: this.position.y + Math.sin(angle) * radius,
+        };
+        this.onDeathBurst?.(burstPos);
+      }
     }
 
-    // Smoke effects
+    // Smoke effects - also more frequent
     this.deathSmokeTimer -= deltaTime;
+    const smokeInterval = 0.1 - progress * 0.06;
     if (this.deathSmokeTimer <= 0) {
-      this.deathSmokeTimer = 0.08;
+      this.deathSmokeTimer = smokeInterval;
+      // Smoke spreads wider over time
+      const smokeSpread = 0.8 + progress * 0.6;
       const smokePos = {
-        x: this.position.x + (Math.random() - 0.5) * this.radius * 0.8,
-        y: this.position.y - this.radius * 0.9,
+        x: this.position.x + (Math.random() - 0.5) * this.radius * smokeSpread,
+        y: this.position.y + (Math.random() - 0.7) * this.radius * smokeSpread,
       };
       this.onDeathSmoke?.(smokePos, this.deathAlpha);
     }
@@ -334,6 +369,11 @@ export class BossV2 extends Entity implements CircleCollider {
     // Store desired position instead of directly setting
     let desiredX = this.position.x;
     let desiredY = this.position.y;
+
+    // Reset teleport fade when not using teleport movement
+    if (movement.type !== "teleport") {
+      this.teleportFadeAlpha = 1;
+    }
 
     switch (movement.type) {
       case "patrol":
@@ -446,25 +486,55 @@ export class BossV2 extends Entity implements CircleCollider {
   private updateTeleportMovement(deltaTime: number, screenSize: Vec2, movement: { interval: number; telegraphTime: number }): void {
     if (!this.movementState.teleportTimer) this.movementState.teleportTimer = movement.interval;
     if (!this.movementState.teleporting) this.movementState.teleporting = false;
-    if (!this.movementState.telegraphTimer) this.movementState.telegraphTimer = 0;
+    if (this.movementState.teleportFadeInTimer === undefined) this.movementState.teleportFadeInTimer = 0;
+
+    const fadeOutDuration = 0.25; // Time to fade out before teleport (shorter)
+    const fadeInDuration = 0.2; // Time to fade in after teleport (shorter)
+
+    // Handle fade-in after teleport
+    if (this.movementState.teleportFadeInTimer > 0) {
+      this.movementState.teleportFadeInTimer -= deltaTime;
+      this.teleportFadeAlpha = 1 - (this.movementState.teleportFadeInTimer / fadeInDuration);
+      return; // Don't process other teleport logic while fading in
+    }
 
     this.movementState.teleportTimer -= deltaTime;
 
+    // Telegraph phase - show destination and start fading out
     if (this.movementState.teleportTimer <= movement.telegraphTime && !this.movementState.teleporting) {
-      // Show telegraph at destination
+      // Pick destination when telegraph starts
       if (!this.movementState.teleportTarget) {
-        this.movementState.teleportTarget = {
-          x: Math.random() * (screenSize.x - this.radius * 2) + this.radius,
-          y: Math.random() * (screenSize.y * 0.5 - this.radius * 2) + this.radius
-        };
-        this.createTelegraph("teleport", this.movementState.teleportTarget, {});
+        const viewBounds = this.getViewBounds?.();
+        if (viewBounds) {
+          this.movementState.teleportTarget = {
+            x: viewBounds.x + this.radius + Math.random() * (viewBounds.w - this.radius * 2),
+            y: viewBounds.y + this.radius + Math.random() * (viewBounds.h * 0.5 - this.radius * 2)
+          };
+        } else {
+          this.movementState.teleportTarget = {
+            x: Math.random() * (screenSize.x - this.radius * 2) + this.radius,
+            y: Math.random() * (screenSize.y * 0.5 - this.radius * 2) + this.radius
+          };
+        }
+        this.createTelegraph("teleport", this.movementState.teleportTarget, { sourcePos: { x: this.position.x, y: this.position.y } });
       }
 
-      this.telegraphAlpha = 1 - (this.movementState.teleportTimer / movement.telegraphTime);
+      // Calculate progress through telegraph phase (0 to 1)
+      const telegraphProgress = 1 - (this.movementState.teleportTimer / movement.telegraphTime);
+      this.telegraphAlpha = telegraphProgress;
+
+      // Fade out boss during last part of telegraph
+      const fadeOutStart = 1 - (fadeOutDuration / movement.telegraphTime);
+      if (telegraphProgress > fadeOutStart) {
+        const fadeProgress = (telegraphProgress - fadeOutStart) / (1 - fadeOutStart);
+        this.teleportFadeAlpha = 1 - fadeProgress;
+      } else {
+        this.teleportFadeAlpha = 1;
+      }
     }
 
+    // Perform teleport
     if (this.movementState.teleportTimer <= 0) {
-      // Perform teleport
       if (this.movementState.teleportTarget) {
         this.position.x = this.movementState.teleportTarget.x;
         this.position.y = this.movementState.teleportTarget.y;
@@ -472,6 +542,10 @@ export class BossV2 extends Entity implements CircleCollider {
       }
       this.movementState.teleportTimer = movement.interval;
       this.telegraphAlpha = 0;
+      this.currentTelegraph = undefined;
+      // Start fade-in at new position
+      this.movementState.teleportFadeInTimer = fadeInDuration;
+      this.teleportFadeAlpha = 0;
     }
   }
 
@@ -479,14 +553,44 @@ export class BossV2 extends Entity implements CircleCollider {
     const dx = target.x - this.position.x;
     const dy = target.y - this.position.y;
     const dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist;
+    const ny = dy / dist;
+
+    // Initialize aggressive state if needed
+    if (!this.movementState.aggressiveChargeTimer) this.movementState.aggressiveChargeTimer = 0;
+    if (!this.movementState.aggressiveChargeCooldown) this.movementState.aggressiveChargeCooldown = 0;
+    if (this.movementState.aggressiveCharging === undefined) this.movementState.aggressiveCharging = false;
 
     let desiredVx = 0;
     let desiredVy = 0;
 
-    if (dist > movement.dodgeRadius) {
-      // Chase player smoothly
-      desiredVx = (dx / dist) * movement.speed;
-      desiredVy = (dy / dist) * movement.speed;
+    // Charging wind-up before aggressive chase
+    if (this.movementState.aggressiveCharging) {
+      this.movementState.aggressiveChargeTimer -= deltaTime;
+
+      // During charge, slow down and show telegraph
+      desiredVx = nx * movement.speed * 0.15;
+      desiredVy = ny * movement.speed * 0.15;
+
+      if (this.movementState.aggressiveChargeTimer <= 0) {
+        // Charge complete, start aggressive chase
+        this.movementState.aggressiveCharging = false;
+        this.movementState.aggressiveChargeCooldown = 4.0; // Cooldown before next charge
+        this.currentTelegraph = undefined;
+      }
+    } else if (dist > movement.dodgeRadius) {
+      // Check if we should start charging for a ram
+      this.movementState.aggressiveChargeCooldown -= deltaTime;
+      if (this.movementState.aggressiveChargeCooldown <= 0 && !this.isTargetInvulnerable?.()) {
+        // Start charge wind-up
+        this.movementState.aggressiveCharging = true;
+        this.movementState.aggressiveChargeTimer = 0.8; // 0.8 second warning
+        this.createTelegraph("aggressive", { x: this.position.x, y: this.position.y }, { direction: { x: nx, y: ny } });
+      }
+
+      // Chase player
+      desiredVx = nx * movement.speed;
+      desiredVy = ny * movement.speed;
     } else {
       // Orbit close to player
       const orbitAngle = this.movementPhase * 2;
@@ -613,9 +717,12 @@ export class BossV2 extends Entity implements CircleCollider {
             charging: true,
             chargeTimer: 0,
             firingTimer: 0,
-            targetAngle: angleToTarget
+            targetAngle: angleToTarget,
+            chargeTime: attack.chargeTime,
+            duration: attack.duration
           });
           this.createTelegraph("beam", this.position, { angle: angleToTarget, chargeTime: attack.chargeTime });
+          this.telegraphAlpha = 1; // Make telegraph immediately visible
         }
         break;
 
@@ -646,10 +753,16 @@ export class BossV2 extends Entity implements CircleCollider {
       if (beamState.charging) {
         beamState.chargeTimer += deltaTime;
 
-        if (beamState.chargeTimer >= 2) {
+        // Pulse telegraph alpha during charge for visibility
+        this.telegraphAlpha = 0.6 + 0.4 * Math.sin(beamState.chargeTimer * 8);
+
+        const chargeTime = beamState.chargeTime ?? 2;
+        if (beamState.chargeTimer >= chargeTime) {
           beamState.charging = false;
           beamState.firing = true;
           this.beamAngle = beamState.targetAngle;
+          this.currentTelegraph = undefined; // Clear telegraph when beam fires
+          this.telegraphAlpha = 0;
         }
       } else if (beamState.firing) {
         beamState.firingTimer += deltaTime;
@@ -657,12 +770,18 @@ export class BossV2 extends Entity implements CircleCollider {
         // Sweep beam if configured
         const attack = this.currentPhase.attacks.find(a => a.type === "beam");
         if (attack?.type === "beam" && attack.sweepAngle) {
-          this.beamSweepProgress = beamState.firingTimer / attack.duration;
+          this.beamSweepProgress = beamState.firingTimer / (beamState.duration ?? attack.duration);
           this.beamAngle = beamState.targetAngle +
             Math.sin(this.beamSweepProgress * Math.PI) * attack.sweepAngle;
         }
 
-        if (beamState.firingTimer >= (attack?.type === "beam" ? attack.duration : 1)) {
+        // Call beam hit callback so main.ts can check for player collision
+        const beamLength = 1000;
+        const beamWidth = 60;
+        this.onBeamHit?.(this.position, this.beamAngle, beamLength, beamWidth);
+
+        const duration = beamState.duration ?? (attack?.type === "beam" ? attack.duration : 1);
+        if (beamState.firingTimer >= duration) {
           this.attackStates.delete("beam");
         }
       }
@@ -704,6 +823,17 @@ export class BossV2 extends Entity implements CircleCollider {
     // Apply death alpha
     if (this.isDying) {
       ctx.globalAlpha = this.deathAlpha;
+    }
+
+    // Apply teleport fade alpha (never go fully invisible - keep minimum 0.15)
+    if (this.teleportFadeAlpha < 1) {
+      ctx.globalAlpha *= Math.max(0.15, this.teleportFadeAlpha);
+    }
+
+    // Flash during entry (invulnerable phase) - similar to player
+    if (!this.hasEntered) {
+      const flash = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
+      ctx.globalAlpha = 0.4 + flash * 0.6;
     }
 
     ctx.translate(this.position.x, this.position.y);
@@ -804,29 +934,131 @@ export class BossV2 extends Entity implements CircleCollider {
         break;
 
       case "teleport":
-        ctx.strokeStyle = "#9900ff";
+        const teleportPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.012);
+        const destX = this.currentTelegraph.position.x;
+        const destY = this.currentTelegraph.position.y;
+
+        // Draw fading ghost at current position (if we have source position)
+        if (this.currentTelegraph.data.sourcePos && this.teleportFadeAlpha < 1) {
+          ctx.save();
+          ctx.globalAlpha = (1 - this.teleportFadeAlpha) * 0.3;
+          ctx.strokeStyle = "#9900ff";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([10, 5]);
+          ctx.beginPath();
+          ctx.arc(this.currentTelegraph.data.sourcePos.x, this.currentTelegraph.data.sourcePos.y, this.radius + 10, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Outer pulsing ring at destination
+        ctx.strokeStyle = `rgba(153, 0, 255, ${0.4 + teleportPulse * 0.4})`;
+        ctx.lineWidth = 3 + teleportPulse * 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(destX, destY, this.radius + 20 + teleportPulse * 15, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner solid ring
+        ctx.strokeStyle = `rgba(200, 100, 255, ${0.6 + teleportPulse * 0.3})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(
-          this.currentTelegraph.position.x,
-          this.currentTelegraph.position.y,
-          this.radius,
-          0,
-          Math.PI * 2
-        );
+        ctx.arc(destX, destY, this.radius, 0, Math.PI * 2);
         ctx.stroke();
+
+        // Fill with semi-transparent color
+        ctx.fillStyle = `rgba(153, 0, 255, ${0.1 + teleportPulse * 0.15})`;
+        ctx.beginPath();
+        ctx.arc(destX, destY, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Cross-hair at center
+        ctx.strokeStyle = `rgba(255, 150, 255, ${0.5 + teleportPulse * 0.5})`;
+        ctx.lineWidth = 2;
+        const crossSize = 20;
+        ctx.beginPath();
+        ctx.moveTo(destX - crossSize, destY);
+        ctx.lineTo(destX + crossSize, destY);
+        ctx.moveTo(destX, destY - crossSize);
+        ctx.lineTo(destX, destY + crossSize);
+        ctx.stroke();
+
+        // Warning text
+        ctx.font = "bold 14px Arial";
+        ctx.fillStyle = `rgba(255, 150, 255, ${0.6 + teleportPulse * 0.4})`;
+        ctx.textAlign = "center";
+        ctx.fillText("⚡ WARP ⚡", destX, destY - this.radius - 25);
+        ctx.textAlign = "left"; // Reset alignment
         break;
 
       case "beam":
-        ctx.fillStyle = "#ff0000";
-        ctx.globalAlpha = this.telegraphAlpha * 0.2;
+        // Beam telegraph - pulsing warning indicator
+        const beamPulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.015);
         const beamLength = 1000;
-        const beamWidth = 40;
+        const beamWidth = 30;
+
         ctx.save();
         ctx.translate(this.position.x, this.position.y);
         ctx.rotate(this.currentTelegraph.data.angle);
+
+        // Pulsing fill
+        ctx.fillStyle = `rgba(255, 50, 0, ${(0.15 + beamPulse * 0.15) * this.telegraphAlpha})`;
         ctx.fillRect(0, -beamWidth / 2, beamLength, beamWidth);
+
+        // Dashed outline
+        ctx.strokeStyle = `rgba(255, 100, 0, ${(0.6 + beamPulse * 0.4) * this.telegraphAlpha})`;
+        ctx.lineWidth = 2 + beamPulse * 2;
+        ctx.setLineDash([15, 10]);
+        ctx.strokeRect(0, -beamWidth / 2, beamLength, beamWidth);
+
+        // Center danger line
+        ctx.strokeStyle = `rgba(255, 200, 0, ${(0.5 + beamPulse * 0.5) * this.telegraphAlpha})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(beamLength, 0);
+        ctx.stroke();
+
         ctx.restore();
+        break;
+
+      case "aggressive":
+        // Aggressive chase wind-up - pulsing red glow around boss
+        const aggrChargeTime = this.movementState.aggressiveChargeTimer || 0;
+        const aggrPulse = 0.5 + 0.5 * Math.sin(aggrChargeTime * 15);
+
+        // Pulsing danger circle
+        ctx.strokeStyle = `rgba(255, 50, 50, ${0.6 + aggrPulse * 0.4})`;
+        ctx.lineWidth = 4 + aggrPulse * 3;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(this.position.x, this.position.y, this.radius + 25 + aggrPulse * 15, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner glow
+        ctx.strokeStyle = `rgba(255, 200, 50, ${0.4 + aggrPulse * 0.3})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(this.position.x, this.position.y, this.radius + 10, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Direction indicator (subtle arrow toward player)
+        if (this.currentTelegraph.data.direction) {
+          ctx.save();
+          ctx.translate(this.position.x, this.position.y);
+          const aggrAngle = Math.atan2(this.currentTelegraph.data.direction.y, this.currentTelegraph.data.direction.x);
+          ctx.rotate(aggrAngle);
+
+          ctx.fillStyle = `rgba(255, 100, 50, ${0.5 + aggrPulse * 0.3})`;
+          ctx.beginPath();
+          ctx.moveTo(this.radius + 30, 0);
+          ctx.lineTo(this.radius + 60, -15);
+          ctx.lineTo(this.radius + 60, 15);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
         break;
     }
 
@@ -891,13 +1123,20 @@ export class BossV2 extends Entity implements CircleCollider {
       if (this.health <= 0 && !this.isDying) {
         this.isDying = true;
         this.deathTimer = this.deathDuration;
-        this.deathBurstTimer = 0.1;
+        this.deathBurstTimer = 0.05; // Start bursts immediately
         this.deathSmokeTimer = 0;
 
         // Clear any movement state to stop boss in place
         this.movementState = {};
         this.currentTelegraph = undefined;
         this.mask = 0;
+
+        // Stop all active attacks (beam, shockwave, etc.)
+        this.attackStates.clear();
+        this.shockwaveRadius = 0;
+
+        // Notify that death started (for killing minions immediately)
+        this.onDeathStart?.({ x: this.position.x, y: this.position.y });
         // Don't call onDestroyed yet - wait for death animation to complete!
       }
     }

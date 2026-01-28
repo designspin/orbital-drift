@@ -77,6 +77,11 @@ export class MenuUI {
     this.settingsTouchId = null;
   }
 
+  openPurchase(): void {
+    this.purchaseOpen = true;
+    this.settingsOpen = false;
+  }
+
   render(ctx: CanvasRenderingContext2D, state: MenuUIState): void {
     this.renderSettingsIcon(ctx, state);
     this.renderLeaderboardButton(ctx, state);

@@ -89,6 +89,8 @@ class CH17 extends Engine {
   private bossFactory = new BossFactory();
   private spawnManager!: SpawnManager;
   private gameOverTime = 0;
+  private bossVictoryTime = 0;
+  private bossVictoryShowPurchase = false;
   private fontFamily = '"Space Grotesk", sans-serif';
   private minZoom = 1.0;
   private maxZoom = 1.6;
@@ -97,6 +99,7 @@ class CH17 extends Engine {
   private seed: number = GAME_CONFIG.seed;
   private bossTestEnabled = false;
   private testWave = 0;
+  private godMode = false;
   private thrusterLoopActive = false;
   private waveOverlayTime = 0;
   private bossMusicActive = false;
@@ -147,6 +150,7 @@ class CH17 extends Engine {
     } else if (this.bossTestEnabled) {
       this.testWave = 5; // Default to first boss if bossTest is enabled
     }
+    this.godMode = GAME_CONFIG.debug.godMode ?? false;
     this.setupActions();
     this.setupTapToStart();
     this.setupAppLifecycle();
@@ -406,7 +410,7 @@ class CH17 extends Engine {
     this.resolveEnemyOverlaps();
     if (this.boss && !this.boss.alive) {
       this.boss = undefined;
-      this.waveSystem.onBossDefeated();
+      this.handleBossDefeated();
     }
 
     const speed = this.player.getSpeed();
@@ -571,6 +575,59 @@ class CH17 extends Engine {
 
     this.ctx.font = `18px ${this.fontFamily}`;
     this.ctx.fillText(`Score: ${this.scoreSystem.getScore()}`, w / 2, h / 2 + 15 + yOffset);
+    this.ctx.restore();
+  }
+
+  private renderBossVictory(): void {
+    const { x: w, y: h } = this.viewportSize;
+
+    this.renderPlaying();
+
+    const { alpha, yOffset } = this.getPanelAnimation(this.bossVictoryTime, 4);
+    if (alpha <= 0) return;
+
+    this.ctx.save();
+
+    // Larger panel for boss victory
+    const panelW = 420;
+    const panelH = this.bossVictoryShowPurchase ? 180 : 150;
+    const px = (w - panelW) / 2;
+    const py = (h - panelH) / 2 + yOffset;
+
+    // Celebratory gold tint on the panel
+    this.ctx.fillStyle = `rgba(20, 15, 0, ${(0.55 * alpha).toFixed(3)})`;
+    this.drawRoundedRect(this.ctx, px, py, panelW, panelH, 16);
+    this.ctx.fill();
+
+    // Gold border
+    this.ctx.strokeStyle = `rgba(255, 200, 80, ${(0.6 * alpha).toFixed(3)})`;
+    this.ctx.lineWidth = 2;
+    this.drawRoundedRect(this.ctx, px, py, panelW, panelH, 16);
+    this.ctx.stroke();
+
+    // Title with gold color
+    this.ctx.fillStyle = `rgba(255, 215, 100, ${alpha.toFixed(3)})`;
+    this.ctx.font = `bold 38px ${this.fontFamily}`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('Boss Defeated!', w / 2, h / 2 - 35 + yOffset);
+
+    // Score
+    this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+    this.ctx.font = `20px ${this.fontFamily}`;
+    this.ctx.fillText(`Score: ${this.scoreSystem.getScore()}`, w / 2, h / 2 + 5 + yOffset);
+
+    // If purchase required, show message
+    if (this.bossVictoryShowPurchase) {
+      this.ctx.fillStyle = `rgba(180, 220, 255, ${(0.9 * alpha).toFixed(3)})`;
+      this.ctx.font = `16px ${this.fontFamily}`;
+      this.ctx.fillText('Unlock the full game to continue your adventure!', w / 2, h / 2 + 45 + yOffset);
+    } else {
+      this.ctx.fillStyle = `rgba(150, 255, 150, ${(0.85 * alpha).toFixed(3)})`;
+      this.ctx.font = `16px ${this.fontFamily}`;
+      this.ctx.fillText('Prepare for the next challenge...', w / 2, h / 2 + 40 + yOffset);
+    }
+
     this.ctx.restore();
   }
 
@@ -950,7 +1007,11 @@ class CH17 extends Engine {
             this.sprites.player.shipLarge,
           );
           this.playerDeathExploded = false;
-          this.player.setInvulnerable(3.0); // 3 seconds of invulnerability after respawn
+          if (this.godMode) {
+            this.player.mask = 0;
+          } else {
+            this.player.setInvulnerable(3.0);
+          }
           this.addEntity(this.player);
           this.stateMachine.set('playing');
         }
@@ -993,13 +1054,48 @@ class CH17 extends Engine {
       },
     };
 
+    const bossVictoryState: GameState = {
+      name: 'bossVictory',
+      enter: () => {
+        this.hudSystem.setHudVisible(false);
+        this.hudSystem.setPauseVisible(false);
+        this.bossVictoryTime = 0;
+        this.stopThrusterAudio();
+        this.touchControls?.setVisible(false);
+        if (this.touchControls) {
+          this.setUiPointerEvents(false);
+        }
+      },
+      update: (dt) => {
+        this.bossVictoryTime += dt;
+        // Let particles and effects continue
+        super.update(dt);
+        this.systems.update(dt);
+
+        // After celebration, transition based on purchase status
+        if (this.bossVictoryTime >= 4) {
+          if (this.bossVictoryShowPurchase) {
+            this.stateMachine.set('menu');
+            this.menuUI.openPurchase();
+          } else {
+            this.waveSystem.advanceToNextWave();
+            this.stateMachine.set('playing');
+          }
+        }
+      },
+      render: () => {
+        this.renderBossVictory();
+      },
+    };
+
     this.stateMachine
       .add(loadingState)
       .add(menuState)
       .add(playingState)
       .add(pausedState)
       .add(respawnState)
-      .add(gameOverState);
+      .add(gameOverState)
+      .add(bossVictoryState);
   }
 
   private updateThrusterAudio(thrusting: boolean): void {
@@ -1354,6 +1450,7 @@ class CH17 extends Engine {
       getPlayerPosition: () => this.player?.position ?? { x: this.worldSize.x / 2, y: this.worldSize.y / 2 },
       getEnemies: () => this.enemies,
       getAsteroids: () => this.asteroids,
+      getBoss: () => this.boss && this.boss.alive ? { position: this.boss.position, radius: this.boss.radius } : undefined,
     });
     this.lives = 3;
     this.shieldEnergy = 1;
@@ -1382,6 +1479,16 @@ class CH17 extends Engine {
       this.sprites.player.shipLarge,
     );
     this.addEntity(this.player);
+
+    // God mode for testing - disable collisions entirely
+    if (this.godMode) {
+      this.player.mask = 0;
+      console.log('GOD MODE: Player collisions disabled');
+    }
+
+    // Snap camera to player position before wave system spawns anything
+    // This ensures boss spawn position is calculated correctly
+    this.camera.follow(this.player.position, this.viewportSize, this.worldSize);
 
     this.waveSystem.reset();
 
@@ -1429,10 +1536,13 @@ class CH17 extends Engine {
     const bossConfig = this.bossFactory.createBossConfig(wave, bossTier, sprite);
 
     // Create the new BossV2 instance
+    // Spawn boss relative to current view so entry time is consistent
     const viewBounds = this.getCameraViewBounds();
+    const spawnX = viewBounds.x + viewBounds.w / 2;
+    const spawnY = viewBounds.y - 150; // Just above the visible area
     const bossV2 = new BossV2(
       bossConfig,
-      { x: viewBounds.x + viewBounds.w / 2, y: viewBounds.y - 120 },
+      { x: spawnX, y: spawnY },
       () => this.player.position,
       (pos, angle, type) => {
         if (type === "missile") {
@@ -1442,7 +1552,7 @@ class CH17 extends Engine {
         }
       },
       {
-        isTargetInvulnerable: () => this.player?.isInvulnerable() ?? false,
+        isTargetInvulnerable: () => this.godMode ? false : (this.player?.isInvulnerable() ?? false),
         getViewBounds: () => this.getCameraViewBounds(),
         onSpawnMinion: (pos) => {
           // Spawn a scout enemy as minion
@@ -1457,13 +1567,24 @@ class CH17 extends Engine {
         },
         onDestroyed: (pos) => {
           this.events.emit('boss:destroyed', { position: pos });
-          this.waveSystem.onBossDefeated();
+          this.handleBossDefeated();
         },
         onDeathBurst: (pos) => {
           this.events.emit('boss:deathBurst', { position: pos });
         },
         onDeathSmoke: (pos, alpha) => {
           this.events.emit('boss:deathSmoke', { position: pos, alpha });
+        },
+        onBeamHit: (beamStart, beamAngle, beamLength, beamWidth) => {
+          this.checkBeamCollision(beamStart, beamAngle, beamLength, beamWidth);
+        },
+        onDeathStart: () => {
+          // Kill all minions immediately when boss starts dying
+          for (const enemy of this.enemies) {
+            enemy.alive = false;
+            this.events.emit('enemy:destroyed', { position: enemy.position });
+          }
+          this.enemies = [];
         },
       }
     );
@@ -1472,6 +1593,56 @@ class CH17 extends Engine {
     this.addEntity(bossV2);
   }
 
+  private checkBeamCollision(beamStart: { x: number; y: number }, beamAngle: number, beamLength: number, beamWidth: number): void {
+    // Skip if god mode or player invulnerable
+    if (this.godMode || this.player.isInvulnerable()) return;
+
+    // Check if player is within the beam's rectangular area
+    const playerPos = this.player.position;
+    const playerRadius = this.player.radius;
+
+    // Transform player position into beam's local coordinate system
+    const dx = playerPos.x - beamStart.x;
+    const dy = playerPos.y - beamStart.y;
+
+    // Rotate to align with beam direction
+    const cos = Math.cos(-beamAngle);
+    const sin = Math.sin(-beamAngle);
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+
+    // Check if player center is within beam bounds (with some tolerance for player radius)
+    const halfWidth = beamWidth / 2 + playerRadius * 0.5;
+    const inBeamLength = localX >= -playerRadius && localX <= beamLength + playerRadius;
+    const inBeamWidth = Math.abs(localY) <= halfWidth;
+
+    if (inBeamLength && inBeamWidth) {
+      // Player hit by beam - kill player
+      this.player.alive = false;
+      this.stateMachine.set('respawn');
+    }
+  }
+
+  private handleBossDefeated(): void {
+    const wasDefeated = this.waveSystem.onBossDefeated();
+    if (!wasDefeated) return;
+
+    // Note: Minions are already killed in onDeathStart callback when boss starts dying
+    const currentWave = this.waveSystem.currentWave;
+    const isIOS = Capacitor.getPlatform() === 'ios';
+
+    // Gate at wave 5 on iOS only - require IAP to continue past first boss
+    if (isIOS && currentWave === 5 && !this.iapManager.isOwned()) {
+      // Show celebration then purchase prompt
+      this.bossVictoryShowPurchase = true;
+      this.stateMachine.set('bossVictory');
+      return;
+    }
+
+    // Show celebration then continue to next wave
+    this.bossVictoryShowPurchase = false;
+    this.stateMachine.set('bossVictory');
+  }
 
   private getAsteroidPositions(): Vec2[] {
     if (!this.asteroidsCacheValid) {
@@ -1799,26 +1970,117 @@ class CH17 extends Engine {
 
   private renderLoading(): void {
     const { x: w, y: h } = this.viewportSize;
-    this.ctx.clearRect(0, 0, w, h);
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillRect(0, 0, w, h);
+    const ctx = this.ctx;
+    const t = Date.now() * 0.001; // Time in seconds
 
-    const barWidth = 300;
-    const barHeight = 16;
-    const x = (w - barWidth) / 2;
-    const y = h / 2 - barHeight / 2;
+    // Dark blue background (matching app icon)
+    ctx.fillStyle = '#0f1729';
+    ctx.fillRect(0, 0, w, h);
 
-    this.ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    this.ctx.fillRect(x, y, barWidth, barHeight);
+    ctx.save();
+    ctx.translate(w / 2, h / 2 - 20);
 
-    this.ctx.fillStyle = 'rgba(120, 196, 255, 0.9)';
-    this.ctx.fillRect(x, y, barWidth * this.progress, barHeight);
+    // Scale icon to fit nicely (base SVG is 1024x1024, we want ~180px)
+    const scale = 0.18;
+    ctx.scale(scale, scale);
+    ctx.rotate(-Math.PI / 4); // -45 degrees rotation like SVG
 
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.font = `18px ${this.fontFamily}`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'bottom';
-    this.ctx.fillText('Loading assets...', w / 2, y - 10);
+    // Animated pulse for shield rings
+    const pulse = 0.5 + 0.5 * Math.sin(t * 2);
+    const fastPulse = 0.5 + 0.5 * Math.sin(t * 4);
+
+    // Shield halo - outer ring (pulsing opacity)
+    ctx.beginPath();
+    ctx.arc(0, 0, 360, 0, Math.PI * 2);
+    ctx.strokeStyle = '#4a9eff';
+    ctx.lineWidth = 40;
+    ctx.globalAlpha = 0.1 + pulse * 0.1;
+    ctx.stroke();
+
+    // Shield halo - middle ring
+    ctx.beginPath();
+    ctx.arc(0, 0, 360, 0, Math.PI * 2);
+    ctx.lineWidth = 24;
+    ctx.globalAlpha = 0.2 + pulse * 0.2;
+    ctx.stroke();
+
+    // Shield halo - inner ring (brighter)
+    ctx.beginPath();
+    ctx.arc(0, 0, 360, 0, Math.PI * 2);
+    ctx.strokeStyle = '#7fcfff';
+    ctx.lineWidth = 8;
+    ctx.globalAlpha = 0.5 + pulse * 0.2;
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+
+    // Thruster trail (animated glow based on progress)
+    const thrusterIntensity = 0.3 + this.progress * 0.5 + fastPulse * 0.2;
+
+    ctx.fillStyle = '#4a9eff';
+    ctx.globalAlpha = 0.3 * thrusterIntensity;
+    ctx.beginPath();
+    ctx.moveTo(0, 300);
+    ctx.lineTo(-35, 180);
+    ctx.lineTo(35, 180);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.globalAlpha = 0.4 * thrusterIntensity;
+    ctx.beginPath();
+    ctx.moveTo(0, 260);
+    ctx.lineTo(-28, 170);
+    ctx.lineTo(28, 170);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.globalAlpha = 0.5 * thrusterIntensity;
+    ctx.beginPath();
+    ctx.moveTo(0, 220);
+    ctx.lineTo(-20, 160);
+    ctx.lineTo(20, 160);
+    ctx.closePath();
+    ctx.fill();
+
+    // Ship body
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#4a9eff';
+    ctx.beginPath();
+    ctx.moveTo(0, -200);
+    ctx.lineTo(-160, 140);
+    ctx.lineTo(0, 80);
+    ctx.lineTo(160, 140);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+
+    // Progress indicator - small dots below the icon
+    const dotCount = 8;
+    const dotRadius = 4;
+    const dotSpacing = 16;
+    const dotsWidth = (dotCount - 1) * dotSpacing;
+    const dotsY = h / 2 + 80;
+
+    for (let i = 0; i < dotCount; i++) {
+      const dotX = w / 2 - dotsWidth / 2 + i * dotSpacing;
+      const filled = i / dotCount < this.progress;
+      const isCurrentDot = Math.floor(this.progress * dotCount) === i;
+
+      ctx.beginPath();
+      ctx.arc(dotX, dotsY, isCurrentDot ? dotRadius + 1 : dotRadius, 0, Math.PI * 2);
+
+      if (filled) {
+        ctx.fillStyle = '#4a9eff';
+        ctx.globalAlpha = 0.9;
+      } else {
+        ctx.fillStyle = '#4a9eff';
+        ctx.globalAlpha = 0.2;
+      }
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
   }
 }
 

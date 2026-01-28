@@ -157,9 +157,13 @@ export class WaveSystem implements System {
     return Math.min(2 + Math.floor(this.wave / 3), this.maxEnemyCap);
   }
 
-  onBossDefeated(): void {
-    if (!this.bossActive) return;
+  onBossDefeated(): boolean {
+    if (!this.bossActive) return false;
     this.bossActive = false;
+    return true;
+  }
+
+  advanceToNextWave(): void {
     this.startWave(this.wave + 1);
   }
 

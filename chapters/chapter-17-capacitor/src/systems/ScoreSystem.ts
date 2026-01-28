@@ -24,18 +24,20 @@ export class ScoreSystem implements System {
   }
 
   onEnemyDestroyed(): void {
-    this.score += 10 * this.getWave();
+    // Enemies are harder than asteroids - reward accordingly
+    this.score += 100 + 25 * this.getWave();
   }
 
   onMissileDestroyed(): void {
-    this.score += 6 * this.getWave();
+    // Missiles are fast and dangerous
+    this.score += 50 + 15 * this.getWave();
   }
 
   onBossHit(): void {
-    this.score += 2 * this.getWave();
+    this.score += 10 * this.getWave();
   }
 
   onBossDestroyed(): void {
-    this.score += 200 * this.getWave();
+    this.score += 500 + 100 * this.getWave();
   }
 }

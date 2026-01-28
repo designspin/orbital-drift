@@ -20,6 +20,8 @@ end
 target 'App' do
   capacitor_pods
   # Add your Pods here
+  # NOTE: Do not run 'cap sync' - it overwrites this file!
+  # Use 'cap copy' to update web assets, then 'pod install' if needed
 end
 
 post_install do |installer|

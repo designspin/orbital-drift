@@ -3,6 +3,7 @@ export const GAME_CONFIG = {
   debug: {
     bossTest: false,
     testWave: 0, // Set to 5, 10, 15, 20, 25+ for boss waves, or any wave number for testing
+    godMode: false, // Makes player invincible for testing
   },
   world: {
     width: 2400,
