@@ -9,6 +9,7 @@ export default defineConfig({
       { text: 'Home', link: '/' },
       { text: 'Tutorial', link: '/00-intro/' },
       { text: 'Support', link: '/support' },
+      { text: 'Privacy', link: '/privacy' },
     ],
     sidebar: [
       { text: 'Introduction', link: '/00-intro/' },
