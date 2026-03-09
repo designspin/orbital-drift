@@ -72,7 +72,6 @@ onBeforeUnmount(() => {
               :src="frameSrc"
               title="Demo preview"
               allow="autoplay; fullscreen; gamepad"
-              sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups"
             ></iframe>
           </div>
         </div>
