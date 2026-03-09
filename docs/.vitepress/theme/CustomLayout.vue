@@ -15,14 +15,21 @@ const { Layout } = DefaultTheme;
   </Layout>
 </template>
 
-<style scoped>
+<style>
+/* Make the actions row and badge sit side by side */
+.VPHero .actions {
+  display: inline-flex !important;
+}
+
 .app-store-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  vertical-align: middle;
+  margin-left: 16px;
 }
 
 .app-store-badge img {
-  height: 48px;
+  height: 44px;
   transition: opacity 0.2s;
 }
 

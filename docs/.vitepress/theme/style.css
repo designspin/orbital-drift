@@ -1,11 +1,3 @@
-/* Hero actions: keep App Store badge inline with buttons */
-.VPHero .actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
 .demo-modal__button {
   display: inline-flex;
   align-items: center;
