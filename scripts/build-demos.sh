@@ -42,7 +42,7 @@ for entry in "${CHAPTERS[@]}"; do
   for js in "$DEST"/assets/*.js; do
     [ -f "$js" ] || continue
     # portable in-place sed (works on both macOS and Linux)
-    sed -E 's!"(/[^"]+\.(png|jpg|jpeg|svg|gif|webp|mp3|ogg|wav|json))"!".\1"!g' "$js" > "$js.tmp" && mv "$js.tmp" "$js"
+    sed -E 's!"(/[^"]+\.(png|jpg|jpeg|svg|gif|webp|mp3|ogg|wav|json|ttf|woff|woff2|otf))"!".\1"!g' "$js" > "$js.tmp" && mv "$js.tmp" "$js"
   done
 done
 
