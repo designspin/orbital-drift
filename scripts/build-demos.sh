@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEMOS_DIR="$ROOT_DIR/docs/public/demos"
+mkdir -p "$DEMOS_DIR"
 
 CHAPTERS=(
   "01:chapter-01-setup"
